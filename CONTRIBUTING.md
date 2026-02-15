@@ -62,6 +62,8 @@ For smoother agent-to-agent and human-to-agent review:
 
 We do **not** require PRs to declare an AI-vs-human line ratio.
 
+Agent implementation playbook lives in [`AGENTS.md`](AGENTS.md).
+
 ## Architecture: Trait-Based Pluggability
 
 ZeroClaw's architecture is built on **traits** — every subsystem is swappable. This means contributing a new integration is as simple as implementing a trait and registering it in the factory function.

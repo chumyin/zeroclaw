@@ -131,3 +131,48 @@ Prefer fast restore of service quality over delayed perfect fixes.
 - Agent workflow notes are sufficient for reproducibility (if automation was used).
 - Rollback plan is explicit.
 - Commit title follows Conventional Commits.
+
+## 10) Agent Review Operating Model
+
+To keep review quality stable under high PR volume, we use a two-lane review model:
+
+### Lane A: Fast triage (agent-friendly)
+
+- Confirm PR template completeness.
+- Confirm CI gate signal (`CI Required Gate`).
+- Confirm risk class via labels and touched paths.
+- Confirm rollback statement exists.
+
+### Lane B: Deep review (risk-based)
+
+Required for high-risk changes (security/runtime/gateway/CI):
+
+- Validate threat model assumptions.
+- Validate failure mode and degradation behavior.
+- Validate backward compatibility and migration impact.
+- Validate observability/logging impact.
+
+## 11) Queue Priority and Label Discipline
+
+Triage order recommendation:
+
+1. `size: XS`/`size: S` + bug/security fixes
+2. `size: M` focused changes
+3. `size: L`/`size: XL` split requests or staged review
+
+Label discipline:
+
+- Path labels identify subsystem ownership quickly.
+- Size labels drive batching strategy.
+- `no-stale` is reserved for accepted-but-blocked work.
+
+## 12) Agent Handoff Contract
+
+When one agent hands off to another (or to a maintainer), include:
+
+1. Scope boundary (what changed / what did not).
+2. Validation evidence.
+3. Open risks and unknowns.
+4. Suggested next action.
+
+This keeps context loss low and avoids repeated deep dives.
