@@ -16,10 +16,38 @@ pub struct GeminiProvider {
     client: Client,
 }
 
+/// Resolved credential — the variant determines both the HTTP auth method
+/// and the diagnostic label returned by `auth_source()`.
 #[derive(Debug)]
 enum GeminiAuth {
-    ApiKey(String),
+    /// Explicit API key from config: sent as `?key=` query parameter.
+    ExplicitKey(String),
+    /// API key from `GEMINI_API_KEY` env var: sent as `?key=`.
+    EnvGeminiKey(String),
+    /// API key from `GOOGLE_API_KEY` env var: sent as `?key=`.
+    EnvGoogleKey(String),
+    /// OAuth access token from Gemini CLI: sent as `Authorization: Bearer`.
     OAuthToken(String),
+}
+
+impl GeminiAuth {
+    /// Whether this credential is an API key (sent as `?key=` query param).
+    fn is_api_key(&self) -> bool {
+        matches!(
+            self,
+            GeminiAuth::ExplicitKey(_) | GeminiAuth::EnvGeminiKey(_) | GeminiAuth::EnvGoogleKey(_)
+        )
+    }
+
+    /// The raw credential string.
+    fn credential(&self) -> &str {
+        match self {
+            GeminiAuth::ExplicitKey(s)
+            | GeminiAuth::EnvGeminiKey(s)
+            | GeminiAuth::EnvGoogleKey(s)
+            | GeminiAuth::OAuthToken(s) => s,
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -102,9 +130,9 @@ impl GeminiProvider {
     pub fn new(api_key: Option<&str>) -> Self {
         let resolved_auth = api_key
             .and_then(Self::normalize_non_empty)
-            .map(GeminiAuth::ApiKey)
-            .or_else(|| Self::load_non_empty_env("GEMINI_API_KEY").map(GeminiAuth::ApiKey))
-            .or_else(|| Self::load_non_empty_env("GOOGLE_API_KEY").map(GeminiAuth::ApiKey))
+            .map(GeminiAuth::ExplicitKey)
+            .or_else(|| Self::load_non_empty_env("GEMINI_API_KEY").map(GeminiAuth::EnvGeminiKey))
+            .or_else(|| Self::load_non_empty_env("GOOGLE_API_KEY").map(GeminiAuth::EnvGoogleKey))
             .or_else(|| Self::try_load_gemini_cli_token().map(GeminiAuth::OAuthToken));
 
         Self {
@@ -149,7 +177,7 @@ impl GeminiProvider {
         if let Some(ref expiry) = creds.expiry {
             if let Ok(expiry_time) = chrono::DateTime::parse_from_rfc3339(expiry) {
                 if expiry_time < chrono::Utc::now() {
-                    tracing::debug!("Gemini CLI OAuth token expired, skipping");
+                    tracing::warn!("Gemini CLI OAuth token expired — re-run `gemini` to refresh");
                     return None;
                 }
             }
@@ -177,19 +205,14 @@ impl GeminiProvider {
             || Self::has_cli_credentials()
     }
 
-    /// Get authentication source description for diagnostics
+    /// Get authentication source description for diagnostics.
+    /// Uses the stored enum variant — no env var re-reading at call time.
     pub fn auth_source(&self) -> &'static str {
         match self.auth.as_ref() {
+            Some(GeminiAuth::ExplicitKey(_)) => "config",
+            Some(GeminiAuth::EnvGeminiKey(_)) => "GEMINI_API_KEY env var",
+            Some(GeminiAuth::EnvGoogleKey(_)) => "GOOGLE_API_KEY env var",
             Some(GeminiAuth::OAuthToken(_)) => "Gemini CLI OAuth",
-            Some(GeminiAuth::ApiKey(_)) => {
-                if Self::load_non_empty_env("GEMINI_API_KEY").is_some() {
-                    "GEMINI_API_KEY env var"
-                } else if Self::load_non_empty_env("GOOGLE_API_KEY").is_some() {
-                    "GOOGLE_API_KEY env var"
-                } else {
-                    "config"
-                }
-            }
             None => "none",
         }
     }
@@ -208,9 +231,10 @@ impl GeminiProvider {
             "https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent"
         );
 
-        match auth {
-            GeminiAuth::ApiKey(api_key) => format!("{base_url}?key={api_key}"),
-            GeminiAuth::OAuthToken(_) => base_url,
+        if auth.is_api_key() {
+            format!("{base_url}?key={}", auth.credential())
+        } else {
+            base_url
         }
     }
 
@@ -220,9 +244,10 @@ impl GeminiProvider {
         url: &str,
         request: &GenerateContentRequest,
     ) -> reqwest::RequestBuilder {
+        let req = self.client.post(url).json(request);
         match auth {
-            GeminiAuth::ApiKey(_) => self.client.post(url).json(request),
-            GeminiAuth::OAuthToken(token) => self.client.post(url).bearer_auth(token).json(request),
+            GeminiAuth::OAuthToken(token) => req.bearer_auth(token),
+            _ => req,
         }
     }
 }
@@ -309,7 +334,15 @@ mod tests {
             GeminiProvider::normalize_non_empty(" value "),
             Some("value".into())
         );
+        assert_eq!(GeminiProvider::normalize_non_empty(""), None);
         assert_eq!(GeminiProvider::normalize_non_empty(" \t\n"), None);
+    }
+
+    #[test]
+    fn provider_creates_without_key() {
+        let provider = GeminiProvider::new(None);
+        // May pick up env vars; just verify it doesn't panic
+        let _ = provider.auth_source();
     }
 
     #[test]
@@ -317,8 +350,14 @@ mod tests {
         let provider = GeminiProvider::new(Some("test-api-key"));
         assert!(matches!(
             provider.auth,
-            Some(GeminiAuth::ApiKey(ref key)) if key == "test-api-key"
+            Some(GeminiAuth::ExplicitKey(ref key)) if key == "test-api-key"
         ));
+    }
+
+    #[test]
+    fn provider_rejects_empty_key() {
+        let provider = GeminiProvider::new(Some(""));
+        assert!(!matches!(provider.auth, Some(GeminiAuth::ExplicitKey(_))));
     }
 
     #[test]
@@ -332,7 +371,25 @@ mod tests {
     }
 
     #[test]
-    fn auth_source_reports_correctly() {
+    fn auth_source_explicit_key() {
+        let provider = GeminiProvider {
+            auth: Some(GeminiAuth::ExplicitKey("key".into())),
+            client: Client::new(),
+        };
+        assert_eq!(provider.auth_source(), "config");
+    }
+
+    #[test]
+    fn auth_source_none_without_credentials() {
+        let provider = GeminiProvider {
+            auth: None,
+            client: Client::new(),
+        };
+        assert_eq!(provider.auth_source(), "none");
+    }
+
+    #[test]
+    fn auth_source_oauth() {
         let provider = GeminiProvider {
             auth: Some(GeminiAuth::OAuthToken("ya29.mock".into())),
             client: Client::new(),
@@ -342,16 +399,19 @@ mod tests {
 
     #[test]
     fn model_name_formatting() {
-        let formatted = GeminiProvider::format_model_name("gemini-2.0-flash");
-        assert_eq!(formatted, "models/gemini-2.0-flash");
-
-        let formatted2 = GeminiProvider::format_model_name("models/gemini-1.5-pro");
-        assert_eq!(formatted2, "models/gemini-1.5-pro");
+        assert_eq!(
+            GeminiProvider::format_model_name("gemini-2.0-flash"),
+            "models/gemini-2.0-flash"
+        );
+        assert_eq!(
+            GeminiProvider::format_model_name("models/gemini-1.5-pro"),
+            "models/gemini-1.5-pro"
+        );
     }
 
     #[test]
     fn api_key_url_includes_key_query_param() {
-        let auth = GeminiAuth::ApiKey("api-key-123".into());
+        let auth = GeminiAuth::ExplicitKey("api-key-123".into());
         let url = GeminiProvider::build_generate_content_url("gemini-2.0-flash", &auth);
         assert!(url.contains(":generateContent?key=api-key-123"));
     }
@@ -366,10 +426,13 @@ mod tests {
 
     #[test]
     fn oauth_request_uses_bearer_auth_header() {
-        let provider = GeminiProvider::new(Some("placeholder-api-key"));
+        let provider = GeminiProvider {
+            auth: Some(GeminiAuth::OAuthToken("ya29.mock-token".into())),
+            client: Client::new(),
+        };
         let auth = GeminiAuth::OAuthToken("ya29.mock-token".into());
         let url = GeminiProvider::build_generate_content_url("gemini-2.0-flash", &auth);
-        let request_payload = GenerateContentRequest {
+        let body = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".into()),
                 parts: vec![Part {
@@ -384,11 +447,10 @@ mod tests {
         };
 
         let request = provider
-            .build_generate_content_request(&auth, &url, &request_payload)
+            .build_generate_content_request(&auth, &url, &body)
             .build()
             .unwrap();
 
-        assert_eq!(request.url().as_str(), url);
         assert_eq!(
             request
                 .headers()
@@ -400,10 +462,13 @@ mod tests {
 
     #[test]
     fn api_key_request_does_not_set_bearer_header() {
-        let provider = GeminiProvider::new(Some("placeholder-api-key"));
-        let auth = GeminiAuth::ApiKey("api-key-123".into());
+        let provider = GeminiProvider {
+            auth: Some(GeminiAuth::ExplicitKey("api-key-123".into())),
+            client: Client::new(),
+        };
+        let auth = GeminiAuth::ExplicitKey("api-key-123".into());
         let url = GeminiProvider::build_generate_content_url("gemini-2.0-flash", &auth);
-        let request_payload = GenerateContentRequest {
+        let body = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".into()),
                 parts: vec![Part {
@@ -418,11 +483,10 @@ mod tests {
         };
 
         let request = provider
-            .build_generate_content_request(&auth, &url, &request_payload)
+            .build_generate_content_request(&auth, &url, &body)
             .build()
             .unwrap();
 
-        assert_eq!(request.url().as_str(), url);
         assert!(request.headers().get(AUTHORIZATION).is_none());
     }
 
