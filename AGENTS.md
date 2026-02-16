@@ -231,6 +231,17 @@ If full checks are impractical, run the most relevant subset and document what w
 - Prefer small PRs (`size: XS/S/M`) when possible.
 - Agent-assisted PRs are welcome, **but contributors remain accountable for understanding what their code will do**.
 
+### 9.1 Privacy/Sensitive Data and Neutral Wording (Required)
+
+Treat privacy and neutrality as merge gates, not best-effort guidelines.
+
+- Never commit personal or sensitive data in code, docs, tests, fixtures, snapshots, logs, examples, or commit messages.
+- Prohibited data includes (non-exhaustive): real names, personal emails, phone numbers, addresses, access tokens, API keys, credentials, IDs, and private URLs.
+- Use neutral project-scoped placeholders (for example: `user_a`, `test_user`, `project_bot`, `example.com`) instead of real identity data.
+- Test names/messages/fixtures must be impersonal and system-focused; avoid first-person or identity-specific language.
+- If reproducing external incidents, redact and anonymize all payloads before committing.
+- Before push, review `git diff --cached` specifically for accidental sensitive strings and identity leakage.
+
 Reference docs:
 
 - `CONTRIBUTING.md`
@@ -247,6 +258,7 @@ Reference docs:
 - Do not modify unrelated modules “while here”.
 - Do not bypass failing checks without explicit explanation.
 - Do not hide behavior-changing side effects in refactor commits.
+- Do not include personal identity or sensitive information in test data, examples, docs, or commits.
 
 ## 11) Handoff Template (Agent -> Agent / Maintainer)
 
