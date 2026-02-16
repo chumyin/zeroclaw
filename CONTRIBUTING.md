@@ -162,6 +162,35 @@ Keep architecture extensible and auditable by following these boundaries.
 - Introduce shared abstractions only after repeated stable use (rule-of-three) and at least one current caller.
 - Treat `src/config/schema.rs` keys as public contract; document compatibility impact, migration steps, and rollback path for changes.
 
+## Naming and Architecture Examples (Bad vs Good)
+
+Use these quick examples to align implementation choices before opening a PR.
+
+### Naming examples
+
+- **Bad**: `Manager`, `Helper`, `doStuff`, `tmp_data`
+- **Good**: `DiscordChannel`, `SecurityPolicy`, `send_message`, `channel_allowlist`
+
+- **Bad test name**: `test1` / `works`
+- **Good test name**: `allowlist_denies_unknown_user`, `provider_returns_error_on_invalid_model`
+
+- **Bad identity-like label**: `john_user`, `alice_bot`
+- **Good identity-like label**: `ZeroClawAgent`, `zeroclaw_user`, `zeroclaw_node`
+
+### Architecture boundary examples
+
+- **Bad**: channel implementation directly imports provider internals to call model APIs.
+- **Good**: channel emits normalized `ChannelMessage`; agent/runtime orchestrates provider calls via trait contracts.
+
+- **Bad**: tool mutates gateway/security policy directly from execution path.
+- **Good**: tool returns structured `ToolResult`; policy enforcement remains in security/runtime boundaries.
+
+- **Bad**: adding broad shared abstraction before any repeated caller.
+- **Good**: keep local logic first; extract shared abstraction only after stable rule-of-three evidence.
+
+- **Bad**: config key changes without migration notes.
+- **Good**: config/schema changes include defaults, compatibility impact, migration steps, and rollback guidance.
+
 ## How to Add a New Provider
 
 Create `src/providers/your_provider.rs`:
