@@ -26,15 +26,18 @@ If any intake requirement fails, leave one actionable checklist comment instead 
 |---|---|---|
 | `risk: low` | docs/tests/chore, isolated non-runtime changes | 1 reviewer + CI gate |
 | `risk: medium` | `src/providers/**`, `src/channels/**`, `src/memory/**`, `src/config/**` | 1 subsystem-aware reviewer + behavior verification |
-| `risk: high` | `src/security/**`, `src/runtime/**`, `src/tools/**`, `.github/workflows/**` | fast triage + deep review, strong rollback and failure-mode checks |
+| `risk: high` | `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**` | fast triage + deep review, strong rollback and failure-mode checks |
 
 When uncertain, treat as `risk: high`.
+
+If automated risk labeling is contextually wrong, maintainers can apply `risk: manual` and set the final risk label explicitly.
 
 ## 4) Fast-Lane Checklist (All PRs)
 
 - Scope boundary is explicit and believable.
 - Validation commands are present and results are coherent.
 - User-facing behavior changes are documented.
+- Author demonstrates understanding of behavior and blast radius (especially for agent-assisted PRs).
 - Rollback path is concrete (not just “revert”).
 - Compatibility/migration impacts are clear.
 
@@ -67,7 +70,16 @@ Prefer checklist-style comments with one of these outcomes:
 
 Avoid vague comments that create back-and-forth latency.
 
-## 8) Handoff Protocol
+## 8) Automation Override Protocol
+
+Use this when automation output creates review side effects:
+
+1. **Incorrect risk label**: add `risk: manual`, then set the intended `risk:*` label.
+2. **Incorrect auto-close on issue triage**: reopen issue, remove route label, and leave one clarifying comment.
+3. **Label spam/noise**: keep one canonical maintainer comment and remove redundant route labels.
+4. **Ambiguous PR scope**: request split before deep review.
+
+## 9) Handoff Protocol
 
 If handing off review to another maintainer/agent, include:
 
@@ -77,7 +89,7 @@ If handing off review to another maintainer/agent, include:
 4. Open blockers
 5. Suggested next action
 
-## 9) Weekly Queue Hygiene
+## 10) Weekly Queue Hygiene
 
 - Review stale queue and apply `no-stale` only to accepted-but-blocked work.
 - Prioritize `size: XS/S` bug/security PRs first.

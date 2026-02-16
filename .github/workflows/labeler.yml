@@ -27,7 +27,8 @@ jobs:
             const repo = context.repo.repo;
 
             const sizeLabels = ["size: XS", "size: S", "size: M", "size: L", "size: XL"];
-            const riskLabels = ["risk: low", "risk: medium", "risk: high"];
+            const computedRiskLabels = ["risk: low", "risk: medium", "risk: high"];
+            const manualRiskOverrideLabel = "risk: manual";
             const labelColors = {
               "size: XS": "BFDADC",
               "size: S": "BFDADC",
@@ -37,6 +38,7 @@ jobs:
               "risk: low": "2EA043",
               "risk: medium": "FBCA04",
               "risk: high": "D73A49",
+              "risk: manual": "1F6FEB",
             };
 
             function isDocsLike(path) {
@@ -58,6 +60,13 @@ jobs:
               per_page: 100,
             });
 
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner,
+              repo,
+              issue_number: pr.number,
+            });
+            const currentLabelNames = currentLabels.map((label) => label.name);
+
             const excludedLockfiles = new Set(["Cargo.lock"]);
             const changedLines = files.reduce((total, file) => {
               const path = file.filename || "";
@@ -78,6 +87,7 @@ jobs:
               return (
                 path.startsWith("src/security/") ||
                 path.startsWith("src/runtime/") ||
+                path.startsWith("src/gateway/") ||
                 path.startsWith("src/tools/") ||
                 path.startsWith(".github/workflows/")
               );
@@ -101,7 +111,7 @@ jobs:
               riskLabel = "risk: medium";
             }
 
-            for (const label of [...sizeLabels, ...riskLabels]) {
+            for (const label of [...sizeLabels, ...computedRiskLabels, manualRiskOverrideLabel]) {
               try {
                 await github.rest.issues.getLabel({
                   owner,
@@ -119,17 +129,17 @@ jobs:
               }
             }
 
-            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
-              owner,
-              repo,
-              issue_number: pr.number,
-            });
+            const hasManualRiskOverride = currentLabelNames.includes(manualRiskOverrideLabel);
+            const keepNonManagedLabels = currentLabelNames.filter(
+              (label) => !sizeLabels.includes(label) && !computedRiskLabels.includes(label)
+            );
 
-            const keepLabels = currentLabels
-              .map((label) => label.name)
-              .filter((label) => !sizeLabels.includes(label) && !riskLabels.includes(label));
+            const manualRiskSelection =
+              currentLabelNames.find((label) => computedRiskLabels.includes(label)) || riskLabel;
 
-            const nextLabels = [...new Set([...keepLabels, sizeLabel, riskLabel])];
+            const nextLabels = hasManualRiskOverride
+              ? [...new Set([...keepNonManagedLabels, sizeLabel, manualRiskSelection])]
+              : [...new Set([...keepNonManagedLabels, sizeLabel, riskLabel])];
             await github.rest.issues.setLabels({
               owner,
               repo,

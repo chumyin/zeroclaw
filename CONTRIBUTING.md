@@ -45,9 +45,28 @@ To keep review throughput high without lowering quality, every PR should map to 
 |---|---|---|
 | **Track A (Low risk)** | docs/tests/chore, isolated refactors, no security/runtime/CI impact | 1 maintainer review + green `CI Required Gate` |
 | **Track B (Medium risk)** | providers/channels/memory/tools behavior changes | 1 subsystem-aware review + explicit validation evidence |
-| **Track C (High risk)** | `src/security/**`, `src/runtime/**`, `.github/workflows/**`, access-control boundaries | 2-pass review (fast triage + deep risk review), rollback plan required |
+| **Track C (High risk)** | `src/security/**`, `src/runtime/**`, `src/gateway/**`, `.github/workflows/**`, access-control boundaries | 2-pass review (fast triage + deep risk review), rollback plan required |
 
 When in doubt, choose the higher track.
+
+## Documentation Optimization Principles
+
+To keep docs useful under high PR volume, we use these rules:
+
+- **Single source of truth**: policy lives in docs, not scattered across PR comments.
+- **Decision-oriented content**: every checklist item should directly help accept/reject a change.
+- **Risk-proportionate detail**: high-risk paths need deeper evidence; low-risk paths stay lightweight.
+- **Side-effect visibility**: document blast radius, failure modes, and rollback before merge.
+- **Automation assists, humans decide**: bots triage and label, but merge accountability stays human.
+
+### Documentation System Map
+
+| Doc | Primary purpose | When to update |
+|---|---|---|
+| `CONTRIBUTING.md` | contributor contract and readiness baseline | contributor expectations or policy changes |
+| `docs/pr-workflow.md` | governance logic and merge contract | workflow/risk/merge gate changes |
+| `docs/reviewer-playbook.md` | reviewer operating checklist | review depth or triage behavior changes |
+| `docs/ci-map.md` | CI ownership and triage entry points | workflow trigger/job ownership changes |
 
 ## PR Definition of Ready (DoR)
 
@@ -77,7 +96,7 @@ When PR traffic is high (especially with AI-assisted contributions), these rules
 - **Small PRs first**: prefer PR size `XS/S/M`; split large work into stacked PRs.
 - **Template is mandatory**: complete every section in `.github/pull_request_template.md`.
 - **Explicit rollback**: every PR must include a fast rollback path.
-- **Security-first review**: changes in `src/security/`, runtime, and CI need stricter validation.
+- **Security-first review**: changes in `src/security/`, runtime, gateway, and CI need stricter validation.
 - **Risk-first triage**: use labels (`risk: high`, `risk: medium`, `risk: low`) to route review depth.
 
 Full maintainer workflow: [`docs/pr-workflow.md`](docs/pr-workflow.md).
@@ -93,6 +112,7 @@ For smoother agent-to-agent and human-to-agent review:
 - Keep PR summaries concrete (problem, change, non-goals).
 - Include reproducible validation evidence (`fmt`, `clippy`, `test`, scenario checks).
 - Add brief workflow notes when automation materially influenced design/code.
+- Agent-assisted PRs are welcome, but contributors remain accountable for understanding what the code does and what it could affect.
 - Call out uncertainty and risky edges explicitly.
 
 We do **not** require PRs to declare an AI-vs-human line ratio.

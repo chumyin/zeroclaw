@@ -11,7 +11,7 @@ Describe this PR in 2-5 bullets:
 
 - [ ] Track A (low risk: docs/tests/chore)
 - [ ] Track B (medium risk: behavior changes in providers/channels/memory/tools)
-- [ ] Track C (high risk: security/runtime/workflows/access control)
+- [ ] Track C (high risk: security/runtime/gateway/workflows/access control)
 
 ## Change Type
 
@@ -79,11 +79,17 @@ What was personally validated beyond CI:
 - Edge cases checked:
 - What was not verified:
 
+## Side Effects / Blast Radius (required)
+
+- Affected subsystems/workflows:
+- Potential unintended effects:
+- Guardrails/monitoring for early detection:
+
 ## Agent Collaboration Notes (recommended)
 
 - [ ] If agent/automation tools were used, I added brief workflow notes.
 - [ ] I included concrete validation evidence for this change.
-- [ ] I can explain design choices and rollback steps.
+- [ ] I can explain design choices, runtime behavior, and rollback steps.
 
 If agent tools were used, optional context:
 

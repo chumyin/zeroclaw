@@ -21,6 +21,17 @@ Related references:
 3. Keep security review explicit for risky surfaces.
 4. Keep changes easy to reason about and easy to revert.
 
+### Governance Design Logic (Control Loop)
+
+This workflow is intentionally layered to reduce reviewer load while keeping accountability clear:
+
+1. **Intake classification**: path/size/risk labels route the PR to the right review depth.
+2. **Deterministic validation**: merge gate depends on reproducible checks, not subjective comments.
+3. **Risk-based review depth**: high-risk paths trigger deep review; low-risk paths stay fast.
+4. **Rollback-first merge contract**: every merge path includes concrete recovery steps.
+
+Automation assists with triage and guardrails, but final merge accountability remains with human maintainers and PR authors.
+
 ## 2) Required Repository Settings
 
 Maintain these branch protection rules on `main`:
@@ -37,7 +48,7 @@ Maintain these branch protection rules on `main`:
 ### Step A: Intake
 
 - Contributor opens PR with full `.github/pull_request_template.md`.
-- `PR Labeler` applies path labels + size labels.
+- `PR Labeler` applies path labels + size labels + risk labels.
 - `Auto Response` posts first-time guidance and handles label-driven routing for low-signal items.
 
 ### Step B: Validation
@@ -49,7 +60,7 @@ Maintain these branch protection rules on `main`:
 ### Step C: Review
 
 - Reviewers prioritize by risk and size labels.
-- Security-sensitive paths (`src/security`, runtime, CI) require maintainer attention.
+- Security-sensitive paths (`src/security`, `src/runtime`, `src/gateway`, and CI workflows) require maintainer attention.
 - Large PRs (`size: L`/`size: XL`) should be split unless strongly justified.
 
 ### Step D: Merge
@@ -129,7 +140,13 @@ Issue triage discipline:
 
 - `r:needs-repro` for incomplete bug reports (request deterministic repro before deep triage).
 - `r:support` for usage/help items better handled outside bug backlog.
-- `invalid` / `duplicate` labels trigger closing automation with guidance.
+- `invalid` / `duplicate` labels trigger **issue-only** closing automation with guidance.
+
+Automation side-effect guards:
+
+- `Auto Response` deduplicates label-based comments to avoid spam.
+- Automated close routes are limited to issues, not PRs.
+- Maintainers can freeze automated risk recalculation with `risk: manual` when context demands human override.
 
 ## 8) Security and Stability Rules
 
@@ -137,6 +154,7 @@ Changes in these areas require stricter review and stronger test evidence:
 
 - `src/security/**`
 - runtime process management
+- gateway ingress/authentication behavior (`src/gateway/**`)
 - filesystem access boundaries
 - network/authentication behavior
 - GitHub workflows and release pipeline
@@ -152,6 +170,8 @@ Recommended for high-risk PRs:
 
 - include a focused test proving boundary behavior
 - include one explicit failure-mode scenario and expected degradation
+
+For agent-assisted contributions, reviewers should also verify the author demonstrates understanding of runtime behavior and blast radius.
 
 ## 9) Failure Recovery
 
@@ -206,6 +226,7 @@ Label discipline:
 - Path labels identify subsystem ownership quickly.
 - Size labels drive batching strategy.
 - Risk labels drive review depth (`risk: low/medium/high`).
+- `risk: manual` allows maintainers to preserve a human risk judgment when automation lacks context.
 - `no-stale` is reserved for accepted-but-blocked work.
 
 ## 13) Agent Handoff Contract

@@ -28,8 +28,11 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - `.github/workflows/labeler.yml` (`PR Labeler`)
     - Purpose: path labels + size labels + risk labels (`risk: low/medium/high`)
+    - High-risk heuristic paths: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`
+    - Guardrail: maintainers can apply `risk: manual` to freeze automated risk recalculation
 - `.github/workflows/auto-response.yml` (`Auto Response`)
     - Purpose: first-time contributor onboarding + label-driven response routing (`r:support`, `r:needs-repro`, etc.)
+    - Guardrail: label-based close routes are issue-only; PRs are never auto-closed by route labels
 - `.github/workflows/stale.yml` (`Stale`)
     - Purpose: stale issue/PR lifecycle automation
 - `.github/dependabot.yml` (`Dependabot`)
@@ -67,3 +70,10 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Keep docs quality checks low-noise (`markdownlint` + offline link checks).
 - Keep dependency update volume controlled (grouping + PR limits).
 - Avoid mixing onboarding/community automation with merge-gating logic.
+
+## Automation Side-Effect Controls
+
+- Prefer deterministic automation that can be manually overridden (`risk: manual`) when context is nuanced.
+- Keep auto-response comments deduplicated to prevent triage noise.
+- Keep auto-close behavior scoped to issues; maintainers own PR close/merge decisions.
+- If automation is wrong, correct labels first, then continue review with explicit rationale.

@@ -61,6 +61,8 @@ jobs:
 
             const isIssue = Boolean(issue);
             const issueNumber = target.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
             const rules = [
               {
@@ -80,6 +82,7 @@ jobs:
               {
                 label: "invalid",
                 close: true,
+                closeIssuesOnly: true,
                 closeReason: "not_planned",
                 message:
                   "Closing as invalid based on current information. If this is still relevant, open a new issue with updated evidence and reproducible steps.",
@@ -87,6 +90,7 @@ jobs:
               {
                 label: "duplicate",
                 close: true,
+                closeIssuesOnly: true,
                 closeReason: "not_planned",
                 message:
                   "Closing as duplicate. Please continue discussion in the canonical linked issue/PR.",
@@ -96,28 +100,43 @@ jobs:
             const rule = rules.find((entry) => entry.label === label);
             if (!rule) return;
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+            const marker = `<!-- auto-response:${rule.label} -->`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
               issue_number: issueNumber,
-              body: rule.message,
+              per_page: 100,
             });
+
+            const alreadyCommented = comments.some((comment) =>
+              (comment.body || "").includes(marker)
+            );
+
+            if (!alreadyCommented) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: `${rule.message}\n\n${marker}`,
+              });
+            }
 
             if (!rule.close) return;
             if (rule.closeIssuesOnly && !isIssue) return;
+            if (target.state === "closed") return;
 
             if (isIssue) {
               await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+                owner,
+                repo,
                 issue_number: issueNumber,
                 state: "closed",
                 state_reason: rule.closeReason || "not_planned",
               });
             } else {
               await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+                owner,
+                repo,
                 issue_number: issueNumber,
                 state: "closed",
               });
