@@ -1,11 +1,13 @@
 pub mod chunker;
 pub mod embeddings;
 pub mod hygiene;
+pub mod lucid;
 pub mod markdown;
 pub mod sqlite;
 pub mod traits;
 pub mod vector;
 
+pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
@@ -27,25 +29,39 @@ pub fn create_memory(
         tracing::warn!("memory hygiene skipped: {e}");
     }
 
-    match config.backend.as_str() {
-        "sqlite" => {
-            let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-                Arc::from(embeddings::create_embedding_provider(
-                    &config.embedding_provider,
-                    api_key,
-                    &config.embedding_model,
-                    config.embedding_dimensions,
-                ));
+    fn build_sqlite_memory(
+        config: &MemoryConfig,
+        workspace_dir: &Path,
+        api_key: Option<&str>,
+    ) -> anyhow::Result<SqliteMemory> {
+        let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+            Arc::from(embeddings::create_embedding_provider(
+                &config.embedding_provider,
+                api_key,
+                &config.embedding_model,
+                config.embedding_dimensions,
+            ));
 
-            #[allow(clippy::cast_possible_truncation)]
-            let mem = SqliteMemory::with_embedder(
-                workspace_dir,
-                embedder,
-                config.vector_weight as f32,
-                config.keyword_weight as f32,
-                config.embedding_cache_size,
-            )?;
-            Ok(Box::new(mem))
+        #[allow(clippy::cast_possible_truncation)]
+        let mem = SqliteMemory::with_embedder(
+            workspace_dir,
+            embedder,
+            config.vector_weight as f32,
+            config.keyword_weight as f32,
+            config.embedding_cache_size,
+        )?;
+        Ok(mem)
+    }
+
+    match config.backend.as_str() {
+        "sqlite" => Ok(Box::new(build_sqlite_memory(
+            config,
+            workspace_dir,
+            api_key,
+        )?)),
+        "lucid" => {
+            let local = build_sqlite_memory(config, workspace_dir, api_key)?;
+            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
         "markdown" | "none" => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
         other => {
@@ -80,6 +96,17 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "markdown");
+    }
+
+    #[test]
+    fn factory_lucid() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "lucid".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        assert_eq!(mem.name(), "lucid");
     }
 
     #[test]

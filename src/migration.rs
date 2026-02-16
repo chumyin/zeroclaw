@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::memory::{MarkdownMemory, Memory, MemoryCategory, SqliteMemory};
+use crate::memory::{LucidMemory, MarkdownMemory, Memory, MemoryCategory, SqliteMemory};
 use anyhow::{bail, Context, Result};
 use directories::UserDirs;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
@@ -114,6 +114,10 @@ async fn migrate_openclaw_memory(
 fn target_memory_backend(config: &Config) -> Result<Box<dyn Memory>> {
     match config.memory.backend.as_str() {
         "sqlite" => Ok(Box::new(SqliteMemory::new(&config.workspace_dir)?)),
+        "lucid" => {
+            let local = SqliteMemory::new(&config.workspace_dir)?;
+            Ok(Box::new(LucidMemory::new(&config.workspace_dir, local)))
+        }
         "markdown" | "none" => Ok(Box::new(MarkdownMemory::new(&config.workspace_dir))),
         other => {
             tracing::warn!(

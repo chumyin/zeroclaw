@@ -496,7 +496,7 @@ fn default_http_timeout_secs() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    /// "sqlite" | "markdown" | "none"
+    /// "sqlite" | "lucid" | "markdown" | "none"
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,

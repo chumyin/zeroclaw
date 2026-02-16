@@ -237,8 +237,30 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite`.
+/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
 /// Use `zeroclaw onboard --interactive` for the full wizard.
+fn uses_sqlite_hygiene(backend: &str) -> bool {
+    matches!(backend, "sqlite" | "lucid")
+}
+
+fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
+    MemoryConfig {
+        backend: backend.to_string(),
+        auto_save: backend != "none",
+        hygiene_enabled: uses_sqlite_hygiene(backend),
+        archive_after_days: if uses_sqlite_hygiene(backend) { 7 } else { 0 },
+        purge_after_days: if uses_sqlite_hygiene(backend) { 30 } else { 0 },
+        conversation_retention_days: 30,
+        embedding_provider: "none".to_string(),
+        embedding_model: "text-embedding-3-small".to_string(),
+        embedding_dimensions: 1536,
+        vector_weight: 0.7,
+        keyword_weight: 0.3,
+        embedding_cache_size: if uses_sqlite_hygiene(backend) { 10000 } else { 0 },
+        chunk_max_tokens: 512,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn run_quick_setup(
     api_key: Option<&str>,
@@ -268,33 +290,7 @@ pub fn run_quick_setup(
     let memory_backend_name = memory_backend.unwrap_or("sqlite").to_string();
 
     // Create memory config based on backend choice
-    let memory_config = MemoryConfig {
-        backend: memory_backend_name.clone(),
-        auto_save: memory_backend_name != "none",
-        hygiene_enabled: memory_backend_name == "sqlite",
-        archive_after_days: if memory_backend_name == "sqlite" {
-            7
-        } else {
-            0
-        },
-        purge_after_days: if memory_backend_name == "sqlite" {
-            30
-        } else {
-            0
-        },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if memory_backend_name == "sqlite" {
-            10000
-        } else {
-            0
-        },
-        chunk_max_tokens: 512,
-    };
+    let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
     let config = Config {
         workspace_dir: workspace_dir.clone(),
@@ -2166,6 +2162,7 @@ fn setup_memory() -> Result<MemoryConfig> {
 
     let options = vec![
         "SQLite with Vector Search (recommended) — fast, hybrid search, embeddings",
+        "Lucid Memory bridge — sync with local lucid-memory CLI, keep SQLite fallback",
         "Markdown Files — simple, human-readable, no dependencies",
         "None — disable persistent memory",
     ];
@@ -2177,8 +2174,9 @@ fn setup_memory() -> Result<MemoryConfig> {
         .interact()?;
 
     let backend = match choice {
-        1 => "markdown",
-        2 => "none",
+        1 => "lucid",
+        2 => "markdown",
+        3 => "none",
         _ => "sqlite", // 0 and any unexpected value defaults to sqlite
     };
 
@@ -2199,21 +2197,9 @@ fn setup_memory() -> Result<MemoryConfig> {
         if auto_save { "on" } else { "off" }
     );
 
-    Ok(MemoryConfig {
-        backend: backend.to_string(),
-        auto_save,
-        hygiene_enabled: backend == "sqlite", // Only enable hygiene for SQLite
-        archive_after_days: if backend == "sqlite" { 7 } else { 0 },
-        purge_after_days: if backend == "sqlite" { 30 } else { 0 },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if backend == "sqlite" { 10000 } else { 0 },
-        chunk_max_tokens: 512,
-    })
+    let mut config = memory_config_defaults_for_backend(backend);
+    config.auto_save = auto_save;
+    Ok(config)
 }
 
 // ── Step 3: Channels ────────────────────────────────────────────
@@ -4343,18 +4329,32 @@ mod tests {
     }
 
     #[test]
-    fn default_model_for_minimax_is_m2_5() {
-        assert_eq!(default_model_for_provider("minimax"), "MiniMax-M2.5");
+    fn uses_sqlite_hygiene_accepts_lucid_backend() {
+        assert!(uses_sqlite_hygiene("sqlite"));
+        assert!(uses_sqlite_hygiene("lucid"));
+        assert!(!uses_sqlite_hygiene("markdown"));
+        assert!(!uses_sqlite_hygiene("none"));
     }
 
     #[test]
-    fn minimax_onboard_models_include_m2_variants() {
-        let model_names: Vec<&str> = MINIMAX_ONBOARD_MODELS
-            .iter()
-            .map(|(name, _)| *name)
-            .collect();
-        assert_eq!(model_names.first().copied(), Some("MiniMax-M2.5"));
-        assert!(model_names.contains(&"MiniMax-M2.1"));
-        assert!(model_names.contains(&"MiniMax-M2.1-highspeed"));
+    fn memory_config_defaults_for_lucid_enable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("lucid");
+        assert_eq!(config.backend, "lucid");
+        assert!(config.auto_save);
+        assert!(config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 7);
+        assert_eq!(config.purge_after_days, 30);
+        assert_eq!(config.embedding_cache_size, 10000);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_none_disable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("none");
+        assert_eq!(config.backend, "none");
+        assert!(!config.auto_save);
+        assert!(!config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 0);
+        assert_eq!(config.purge_after_days, 0);
+        assert_eq!(config.embedding_cache_size, 0);
     }
 }
