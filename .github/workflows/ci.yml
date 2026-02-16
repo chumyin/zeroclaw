@@ -23,6 +23,8 @@ jobs:
         outputs:
             docs_only: ${{ steps.scope.outputs.docs_only }}
             docs_changed: ${{ steps.scope.outputs.docs_changed }}
+            rust_changed: ${{ steps.scope.outputs.rust_changed }}
+            docs_files: ${{ steps.scope.outputs.docs_files }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -34,6 +36,13 @@ jobs:
               run: |
                   set -euo pipefail
 
+                  write_empty_docs_files() {
+                    {
+                      echo "docs_files<<EOF"
+                      echo "EOF"
+                    } >> "$GITHUB_OUTPUT"
+                  }
+
                   if [ "${{ github.event_name }}" = "pull_request" ]; then
                     BASE="${{ github.event.pull_request.base.sha }}"
                   else
@@ -43,6 +52,8 @@ jobs:
                   if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
                     echo "docs_only=false" >> "$GITHUB_OUTPUT"
                     echo "docs_changed=false" >> "$GITHUB_OUTPUT"
+                    echo "rust_changed=true" >> "$GITHUB_OUTPUT"
+                    write_empty_docs_files
                     exit 0
                   fi
 
@@ -50,11 +61,15 @@ jobs:
                   if [ -z "$CHANGED" ]; then
                     echo "docs_only=false" >> "$GITHUB_OUTPUT"
                     echo "docs_changed=false" >> "$GITHUB_OUTPUT"
+                    echo "rust_changed=false" >> "$GITHUB_OUTPUT"
+                    write_empty_docs_files
                     exit 0
                   fi
 
                   docs_only=true
                   docs_changed=false
+                  rust_changed=false
+                  docs_files=()
                   while IFS= read -r file; do
                     [ -z "$file" ] && continue
 
@@ -66,19 +81,34 @@ jobs:
                       || [[ "$file" == .github/ISSUE_TEMPLATE/* ]] \
                       || [[ "$file" == .github/pull_request_template.md ]]; then
                       docs_changed=true
+                      docs_files+=("$file")
                       continue
                     fi
 
                     docs_only=false
+
+                    if [[ "$file" == src/* ]] \
+                      || [[ "$file" == tests/* ]] \
+                      || [[ "$file" == "Cargo.toml" ]] \
+                      || [[ "$file" == "Cargo.lock" ]] \
+                      || [[ "$file" == "deny.toml" ]]; then
+                      rust_changed=true
+                    fi
                   done <<< "$CHANGED"
 
                   echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
                   echo "docs_changed=$docs_changed" >> "$GITHUB_OUTPUT"
+                  echo "rust_changed=$rust_changed" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "docs_files<<EOF"
+                    printf '%s\n' "${docs_files[@]}"
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
 
     lint:
         name: Format & Lint
         needs: [changes]
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.rust_changed == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
         steps:
@@ -98,7 +128,7 @@ jobs:
     test:
         name: Test
         needs: [changes]
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.rust_changed == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 30
         steps:
@@ -113,7 +143,7 @@ jobs:
     build:
         name: Build (Smoke)
         needs: [changes]
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.rust_changed == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
@@ -135,6 +165,15 @@ jobs:
             - name: Skip heavy jobs for docs-only change
               run: echo "Docs-only change detected. Rust lint/test/build skipped."
 
+    non-rust:
+        name: Non-Rust Fast Path
+        needs: [changes]
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.rust_changed != 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Skip Rust jobs for non-Rust change scope
+              run: echo "No Rust-impacting files changed. Rust lint/test/build skipped."
+
     docs-quality:
         name: Docs Quality
         needs: [changes]
@@ -147,12 +186,7 @@ jobs:
             - name: Markdown lint
               uses: DavidAnson/markdownlint-cli2-action@v20
               with:
-                  globs: |
-                      README.md
-                      CONTRIBUTING.md
-                      docs/**/*.md
-                      docs/**/*.mdx
-                      .github/pull_request_template.md
+                  globs: ${{ needs.changes.outputs.docs_files }}
 
             - name: Link check (offline)
               uses: lycheeverse/lychee-action@v2
@@ -162,18 +196,14 @@ jobs:
                       --offline
                       --no-progress
                       --format detailed
-                      README.md
-                      CONTRIBUTING.md
-                      docs/**/*.md
-                      docs/**/*.mdx
-                      .github/pull_request_template.md
+                      ${{ needs.changes.outputs.docs_files }}
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     ci-required:
         name: CI Required Gate
         if: always()
-        needs: [changes, lint, test, build, docs-only, docs-quality]
+        needs: [changes, lint, test, build, docs-only, non-rust, docs-quality]
         runs-on: ubuntu-latest
         steps:
             - name: Enforce required status
@@ -182,6 +212,7 @@ jobs:
                   set -euo pipefail
 
                   docs_changed="${{ needs.changes.outputs.docs_changed }}"
+                  rust_changed="${{ needs.changes.outputs.rust_changed }}"
                   docs_result="${{ needs.docs-quality.result }}"
 
                   if [ "${{ needs.changes.outputs.docs_only }}" = "true" ]; then
@@ -191,6 +222,17 @@ jobs:
                       exit 1
                     fi
                     echo "Docs-only fast path passed."
+                    exit 0
+                  fi
+
+                  if [ "$rust_changed" != "true" ]; then
+                    echo "rust_changed=false (non-rust fast path)"
+                    echo "docs=${docs_result}"
+                    if [ "$docs_changed" = "true" ] && [ "$docs_result" != "success" ]; then
+                      echo "Docs changed but docs-quality did not pass."
+                      exit 1
+                    fi
+                    echo "Non-rust fast path passed."
                     exit 0
                   fi
 
