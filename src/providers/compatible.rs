@@ -56,6 +56,14 @@ impl OpenAiCompatibleProvider {
         }
     }
 
+    fn path_ends_with(&self, suffix: &str) -> bool {
+        if let Ok(url) = reqwest::Url::parse(&self.base_url) {
+            return url.path().trim_end_matches('/').ends_with(suffix);
+        }
+
+        self.base_url.trim_end_matches('/').ends_with(suffix)
+    }
+
     fn has_explicit_api_path(&self) -> bool {
         let Ok(url) = reqwest::Url::parse(&self.base_url) else {
             return false;
@@ -67,17 +75,23 @@ impl OpenAiCompatibleProvider {
 
     /// Build the full URL for responses API, detecting if base_url already includes the path.
     fn responses_url(&self) -> String {
-        // If base_url already contains "responses", use it as-is
-        if self.base_url.contains("responses") {
+        if self.path_ends_with("/responses") {
             return self.base_url.clone();
+        }
+
+        let normalized_base = self.base_url.trim_end_matches('/');
+
+        // If chat endpoint is explicitly configured, derive sibling responses endpoint.
+        if let Some(prefix) = normalized_base.strip_suffix("/chat/completions") {
+            return format!("{prefix}/responses");
         }
 
         // If an explicit API path already exists (e.g. /v1, /openai, /api/coding/v3),
         // append responses directly to avoid duplicate /v1 segments.
         if self.has_explicit_api_path() {
-            format!("{}/responses", self.base_url)
+            format!("{normalized_base}/responses")
         } else {
-            format!("{}/v1/responses", self.base_url)
+            format!("{normalized_base}/v1/responses")
         }
     }
 }
@@ -646,6 +660,32 @@ mod tests {
         let p = make_provider(
             "custom",
             "https://my-api.example.com/api/v2/responses",
+            None,
+        );
+        assert_eq!(
+            p.responses_url(),
+            "https://my-api.example.com/api/v2/responses"
+        );
+    }
+
+    #[test]
+    fn responses_url_requires_exact_suffix_match() {
+        let p = make_provider(
+            "custom",
+            "https://my-api.example.com/api/v2/responses-proxy",
+            None,
+        );
+        assert_eq!(
+            p.responses_url(),
+            "https://my-api.example.com/api/v2/responses-proxy/responses"
+        );
+    }
+
+    #[test]
+    fn responses_url_derives_from_chat_endpoint() {
+        let p = make_provider(
+            "custom",
+            "https://my-api.example.com/api/v2/chat/completions",
             None,
         );
         assert_eq!(
