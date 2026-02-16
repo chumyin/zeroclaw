@@ -240,6 +240,10 @@ Treat privacy and neutrality as merge gates, not best-effort guidelines.
 - Use neutral project-scoped placeholders (for example: `user_a`, `test_user`, `project_bot`, `example.com`) instead of real identity data.
 - Test names/messages/fixtures must be impersonal and system-focused; avoid first-person or identity-specific language.
 - If identity-like context is unavoidable, use ZeroClaw-scoped roles/labels only (for example: `ZeroClawAgent`, `ZeroClawOperator`, `zeroclaw_user`) and avoid real-world personas.
+- Recommended identity-safe naming palette (use when identity-like context is required):
+  - actor labels: `ZeroClawAgent`, `ZeroClawOperator`, `ZeroClawMaintainer`, `zeroclaw_user`
+  - service/runtime labels: `zeroclaw_bot`, `zeroclaw_service`, `zeroclaw_runtime`, `zeroclaw_node`
+  - environment labels: `zeroclaw_project`, `zeroclaw_workspace`, `zeroclaw_channel`
 - If reproducing external incidents, redact and anonymize all payloads before committing.
 - Before push, review `git diff --cached` specifically for accidental sensitive strings and identity leakage.
 
