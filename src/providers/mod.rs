@@ -202,7 +202,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "cloudflare" | "cloudflare-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cloudflare AI Gateway",
             "https://gateway.ai.cloudflare.com/v1",
-            api_key,
+            key,
             AuthStyle::Bearer,
         ))),
         "moonshot" | "kimi" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -229,7 +229,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "bedrock" | "aws-bedrock" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Amazon Bedrock",
             "https://bedrock-runtime.us-east-1.amazonaws.com",
-            api_key,
+            key,
             AuthStyle::Bearer,
         ))),
         "qianfan" | "baidu" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -420,6 +420,36 @@ pub fn create_routed_provider(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn clear_test_provider_key_envs() {
+        for key in ["OPENROUTER_API_KEY", "ZEROCLAW_API_KEY", "API_KEY"] {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn resolve_api_key_prefers_explicit_argument() {
+        clear_test_provider_key_envs();
+        std::env::set_var("OPENROUTER_API_KEY", "env-provider-key");
+        std::env::set_var("ZEROCLAW_API_KEY", "env-generic-key");
+
+        let resolved = resolve_api_key("openrouter", Some("  explicit-key  "));
+        assert_eq!(resolved.as_deref(), Some("explicit-key"));
+
+        clear_test_provider_key_envs();
+    }
+
+    #[test]
+    fn resolve_api_key_uses_provider_specific_environment() {
+        clear_test_provider_key_envs();
+        std::env::set_var("OPENROUTER_API_KEY", "provider-key");
+        std::env::set_var("ZEROCLAW_API_KEY", "generic-key");
+
+        let resolved = resolve_api_key("openrouter", None);
+        assert_eq!(resolved.as_deref(), Some("provider-key"));
+
+        clear_test_provider_key_envs();
+    }
 
     // ── Primary providers ────────────────────────────────────
 

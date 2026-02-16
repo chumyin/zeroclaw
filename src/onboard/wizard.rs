@@ -5,6 +5,9 @@ use crate::config::{
     RuntimeConfig, SecretsConfig, SlackConfig, TelegramConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
+use crate::memory::{
+    default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
+};
 use anyhow::{Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
@@ -239,57 +242,10 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
 /// Use `zeroclaw onboard --interactive` for the full wizard.
-struct MemoryBackendOption {
-    key: &'static str,
-    label: &'static str,
-}
-
-const MEMORY_BACKEND_OPTIONS: [MemoryBackendOption; 4] = [
-    MemoryBackendOption {
-        key: "sqlite",
-        label: "SQLite with Vector Search (recommended) — fast, hybrid search, embeddings",
-    },
-    MemoryBackendOption {
-        key: "lucid",
-        label: "Lucid Memory bridge — sync with local lucid-memory CLI, keep SQLite fallback",
-    },
-    MemoryBackendOption {
-        key: "markdown",
-        label: "Markdown Files — simple, human-readable, no dependencies",
-    },
-    MemoryBackendOption {
-        key: "none",
-        label: "None — disable persistent memory",
-    },
-];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct MemoryBackendProfile {
-    auto_save_default: bool,
-    uses_sqlite_hygiene: bool,
-}
-
-fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
-    match backend {
-        "sqlite" | "lucid" => MemoryBackendProfile {
-            auto_save_default: true,
-            uses_sqlite_hygiene: true,
-        },
-        "none" => MemoryBackendProfile {
-            auto_save_default: false,
-            uses_sqlite_hygiene: false,
-        },
-        _ => MemoryBackendProfile {
-            auto_save_default: true,
-            uses_sqlite_hygiene: false,
-        },
-    }
-}
-
 fn backend_key_from_choice(choice: usize) -> &'static str {
-    MEMORY_BACKEND_OPTIONS
+    selectable_memory_backends()
         .get(choice)
-        .map_or("sqlite", |backend| backend.key)
+        .map_or(default_memory_backend_key(), |backend| backend.key)
 }
 
 fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
@@ -342,7 +298,9 @@ pub fn run_quick_setup(
 
     let provider_name = provider.unwrap_or("openrouter").to_string();
     let model = default_model_for_provider(&provider_name);
-    let memory_backend_name = memory_backend.unwrap_or("sqlite").to_string();
+    let memory_backend_name = memory_backend
+        .unwrap_or(default_memory_backend_key())
+        .to_string();
 
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
@@ -2215,7 +2173,7 @@ fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("You can always change this later in config.toml.");
     println!();
 
-    let options: Vec<&str> = MEMORY_BACKEND_OPTIONS
+    let options: Vec<&str> = selectable_memory_backends()
         .iter()
         .map(|backend| backend.label)
         .collect();
@@ -4390,6 +4348,8 @@ mod tests {
         let lucid = memory_backend_profile("lucid");
         assert!(lucid.auto_save_default);
         assert!(lucid.uses_sqlite_hygiene);
+        assert!(lucid.sqlite_based);
+        assert!(lucid.optional_dependency);
 
         let markdown = memory_backend_profile("markdown");
         assert!(markdown.auto_save_default);

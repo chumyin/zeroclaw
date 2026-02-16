@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod chunker;
 pub mod embeddings;
 pub mod hygiene;
@@ -7,6 +8,11 @@ pub mod sqlite;
 pub mod traits;
 pub mod vector;
 
+#[allow(unused_imports)]
+pub use backend::{
+    classify_memory_backend, default_memory_backend_key, memory_backend_profile,
+    selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
+};
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use sqlite::SqliteMemory;
@@ -17,6 +23,33 @@ pub use traits::{MemoryCategory, MemoryEntry};
 use crate::config::MemoryConfig;
 use std::path::Path;
 use std::sync::Arc;
+
+fn create_memory_with_sqlite_builder<F>(
+    backend_name: &str,
+    workspace_dir: &Path,
+    mut sqlite_builder: F,
+    unknown_context: &str,
+) -> anyhow::Result<Box<dyn Memory>>
+where
+    F: FnMut() -> anyhow::Result<SqliteMemory>,
+{
+    match classify_memory_backend(backend_name) {
+        MemoryBackendKind::Sqlite => Ok(Box::new(sqlite_builder()?)),
+        MemoryBackendKind::Lucid => {
+            let local = sqlite_builder()?;
+            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
+        }
+        MemoryBackendKind::Markdown | MemoryBackendKind::None => {
+            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
+        MemoryBackendKind::Unknown => {
+            tracing::warn!(
+                "Unknown memory backend '{backend_name}'{unknown_context}, falling back to markdown"
+            );
+            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
+    }
+}
 
 /// Factory: create the right memory backend from config
 pub fn create_memory(
@@ -53,22 +86,24 @@ pub fn create_memory(
         Ok(mem)
     }
 
-    match config.backend.as_str() {
-        "sqlite" => Ok(Box::new(build_sqlite_memory(
-            config,
-            workspace_dir,
-            api_key,
-        )?)),
-        "lucid" => {
-            let local = build_sqlite_memory(config, workspace_dir, api_key)?;
-            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
-        }
-        "markdown" | "none" => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
-        other => {
-            tracing::warn!("Unknown memory backend '{other}', falling back to markdown");
-            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-        }
-    }
+    create_memory_with_sqlite_builder(
+        &config.backend,
+        workspace_dir,
+        || build_sqlite_memory(config, workspace_dir, api_key),
+        "",
+    )
+}
+
+pub fn create_memory_for_migration(
+    backend: &str,
+    workspace_dir: &Path,
+) -> anyhow::Result<Box<dyn Memory>> {
+    create_memory_with_sqlite_builder(
+        backend,
+        workspace_dir,
+        || SqliteMemory::new(workspace_dir),
+        " during migration",
+    )
 }
 
 #[cfg(test)]
@@ -129,5 +164,12 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "markdown");
+    }
+
+    #[test]
+    fn migration_factory_lucid() {
+        let tmp = TempDir::new().unwrap();
+        let mem = create_memory_for_migration("lucid", tmp.path()).unwrap();
+        assert_eq!(mem.name(), "lucid");
     }
 }
