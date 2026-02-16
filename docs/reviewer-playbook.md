@@ -79,6 +79,15 @@ Use this when automation output creates review side effects:
 3. **Label spam/noise**: keep one canonical maintainer comment and remove redundant route labels.
 4. **Ambiguous PR scope**: request split before deep review.
 
+### PR Backlog Pruning Protocol
+
+When review demand exceeds capacity, apply this order:
+
+1. Keep active bug/security PRs (`size: XS/S`) at the top of queue.
+2. Ask overlapping PRs to consolidate; close older ones as `superseded` after acknowledgement.
+3. Mark dormant PRs as `stale-candidate` before stale closure window starts.
+4. Require rebase + fresh validation before reopening stale/superseded technical work.
+
 ## 9) Handoff Protocol
 
 If handing off review to another maintainer/agent, include:

@@ -136,6 +136,13 @@ Review emphasis for AI-heavy PRs:
 - `stale` automation is used to keep queue healthy; maintainers can apply `no-stale` when needed.
 - `pr-hygiene` automation checks open PRs every 12 hours and posts a nudge when a PR has no new commits for 48+ hours and is either behind `main` or missing/failing `CI Required Gate` on the head commit.
 
+Backlog pressure controls:
+
+- Use a review queue budget: limit concurrent deep-review PRs per maintainer and keep the rest in triage state.
+- For stacked work, require explicit `Depends on #...` so review order is deterministic.
+- If a new PR replaces an older open PR, require `Supersedes #...` and close the older one after maintainer confirmation.
+- Mark dormant/redundant PRs with `stale-candidate` or `superseded` to reduce duplicate review effort.
+
 Issue triage discipline:
 
 - `r:needs-repro` for incomplete bug reports (request deterministic repro before deep triage).

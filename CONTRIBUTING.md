@@ -98,6 +98,7 @@ When PR traffic is high (especially with AI-assisted contributions), these rules
 - **Explicit rollback**: every PR must include a fast rollback path.
 - **Security-first review**: changes in `src/security/`, runtime, gateway, and CI need stricter validation.
 - **Risk-first triage**: use labels (`risk: high`, `risk: medium`, `risk: low`) to route review depth.
+- **Supersede hygiene**: if your PR replaces an older open PR, add `Supersedes #...` and request maintainers close the outdated one.
 
 Full maintainer workflow: [`docs/pr-workflow.md`](docs/pr-workflow.md).
 CI workflow ownership and triage map: [`docs/ci-map.md`](docs/ci-map.md).

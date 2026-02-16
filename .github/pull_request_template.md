@@ -36,6 +36,8 @@ Describe this PR in 2-5 bullets:
 
 - Closes #
 - Related #
+- Depends on # (if stacked)
+- Supersedes # (if replacing older PR)
 
 ## Validation Evidence (required)
 

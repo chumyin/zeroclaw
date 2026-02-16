@@ -77,3 +77,4 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Keep auto-response comments deduplicated to prevent triage noise.
 - Keep auto-close behavior scoped to issues; maintainers own PR close/merge decisions.
 - If automation is wrong, correct labels first, then continue review with explicit rationale.
+- Use `superseded` / `stale-candidate` labels to prune duplicate or dormant PRs before deep review.
