@@ -253,3 +253,4 @@ mod tests {
         assert!(ch.is_user_allowed("anyone"));
     }
 }
+
