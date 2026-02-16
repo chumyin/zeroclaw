@@ -51,3 +51,4 @@ mod tests {
         assert_eq!(lark.app_id, "app-id");
     }
 }
+
