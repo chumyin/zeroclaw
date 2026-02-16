@@ -1819,3 +1819,4 @@ mod tests {
         assert!(tool.validate_url("https://example.com").is_err());
     }
 }
+
