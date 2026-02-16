@@ -50,7 +50,7 @@ jobs:
               { label: "experienced contributor", minMergedPRs: 10 },
             ];
             const contributorTierLabels = contributorTierRules.map((rule) => rule.label);
-            const contributorTierColor = "C5D7A2";
+            const contributorTierColor = "58BCFF";
 
             const managedPathLabels = [
               "docs",
@@ -164,71 +164,46 @@ jobs:
               contributorDisplayOrder.map((label, index) => [label, index])
             );
 
-            function hslToHex(h, s, l) {
-              const saturation = s / 100;
-              const lightness = l / 100;
-              const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
-              const huePrime = ((h % 360) + 360) % 360 / 60;
-              const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
-              let red = 0;
-              let green = 0;
-              let blue = 0;
-
-              if (huePrime >= 0 && huePrime < 1) {
-                red = chroma;
-                green = x;
-              } else if (huePrime < 2) {
-                red = x;
-                green = chroma;
-              } else if (huePrime < 3) {
-                green = chroma;
-                blue = x;
-              } else if (huePrime < 4) {
-                green = x;
-                blue = chroma;
-              } else if (huePrime < 5) {
-                red = x;
-                blue = chroma;
-              } else {
-                red = chroma;
-                blue = x;
-              }
-
-              const match = lightness - chroma / 2;
-              const toHex = (value) =>
-                Math.round((value + match) * 255)
-                  .toString(16)
-                  .padStart(2, "0");
-
-              return `${toHex(red)}${toHex(green)}${toHex(blue)}`.toUpperCase();
-            }
-
-            function buildGradientColorMap(labels) {
-              const colorMap = {};
-              const lastIndex = Math.max(labels.length - 1, 1);
-
-              for (let index = 0; index < labels.length; index += 1) {
-                const ratio = index / lastIndex;
-                const hue = 155 - ratio * 147;
-                const saturation = 34 + ratio * 8;
-                const lightness = 74 - ratio * 8;
-                colorMap[labels[index]] = hslToHex(hue, saturation, lightness);
-              }
-
-              return colorMap;
-            }
-
-            const otherLabelColors = buildGradientColorMap(otherLabelDisplayOrder);
+            const otherLabelColors = {
+              health: "74AF9E",
+              tool: "58A89B",
+              agent: "63A685",
+              memory: "6FAF87",
+              channel: "4D90E4",
+              service: "81B2A4",
+              integration: "6FAE98",
+              tunnel: "83AD97",
+              config: "8FA3B8",
+              observability: "63A9B1",
+              docs: "6E9FC7",
+              dev: "9EA8B2",
+              tests: "86B1B0",
+              skills: "A3B08F",
+              skillforge: "AEA98A",
+              provider: "756AD8",
+              runtime: "8794BF",
+              heartbeat: "A1AE85",
+              daemon: "AAA680",
+              doctor: "A5B88D",
+              onboard: "B8A66F",
+              cron: "B89E7E",
+              ci: "9098B7",
+              dependencies: "8298C7",
+              gateway: "9B8DD3",
+              security: "CD6B63",
+              core: "AE8F7D",
+              scripts: "AE9C8A",
+            };
             const staticLabelColors = {
-              "size: XS": "EAF1F4",
-              "size: S": "DEE9EF",
-              "size: M": "D0DDE6",
-              "size: L": "C1D0DC",
-              "size: XL": "B2C3D1",
-              "risk: low": "BFD8B5",
-              "risk: medium": "E4D39B",
-              "risk: high": "E1A39A",
-              "risk: manual": "B9B1D2",
+              "size: XS": "D6B1B7",
+              "size: S": "CFA0A8",
+              "size: M": "C78F98",
+              "size: L": "BF7E89",
+              "size: XL": "B66E7A",
+              "risk: low": "7CBB8A",
+              "risk: medium": "D8B46B",
+              "risk: high": "D96A6A",
+              "risk: manual": "8E7CC3",
               ...otherLabelColors,
             };
             const staticLabelDescriptions = {
