@@ -48,3 +48,4 @@ mod tests {
         assert_eq!(decrypted, "top-secret");
     }
 }
+
