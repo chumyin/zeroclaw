@@ -305,3 +305,4 @@ mod tests {
         assert!(response.choices.is_empty());
     }
 }
+
