@@ -1148,7 +1148,7 @@ pub struct LarkConfig {
 // ── Security Config ─────────────────────────────────────────────────
 
 /// Security configuration for sandboxing, resource limits, and audit logging
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SecurityConfig {
     /// Sandbox configuration
     #[serde(default)]
@@ -1161,16 +1161,6 @@ pub struct SecurityConfig {
     /// Audit logging configuration
     #[serde(default)]
     pub audit: AuditConfig,
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            sandbox: SandboxConfig::default(),
-            resources: ResourceLimitsConfig::default(),
-            audit: AuditConfig::default(),
-        }
-    }
 }
 
 /// Sandbox configuration for OS-level isolation
@@ -1200,10 +1190,11 @@ impl Default for SandboxConfig {
 }
 
 /// Sandbox backend selection
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SandboxBackend {
     /// Auto-detect best available (default)
+    #[default]
     Auto,
     /// Landlock (Linux kernel LSM, native)
     Landlock,
@@ -1215,12 +1206,6 @@ pub enum SandboxBackend {
     Docker,
     /// No sandboxing (application-layer only)
     None,
-}
-
-impl Default for SandboxBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Resource limits for command execution
