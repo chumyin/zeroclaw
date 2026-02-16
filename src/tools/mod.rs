@@ -361,6 +361,7 @@ mod tests {
             None,
             &browser,
             &http,
+            tmp.path(),
             &agents,
             Some("sk-test"),
         );
