@@ -111,6 +111,7 @@ pub fn all_tools_with_runtime(
             browser_config.session_name.clone(),
             browser_config.backend.clone(),
             browser_config.native_headless,
+            browser_config.native_webdriver_url.clone(),
             browser_config.native_chrome_path.clone(),
         )));
     }

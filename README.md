@@ -306,10 +306,12 @@ enabled = false                        # opt-in browser_open + browser tools
 allowed_domains = ["docs.rs"]         # required when browser is enabled
 backend = "agent_browser"             # "agent_browser" (default), "rust_native", "auto"
 native_headless = true                 # applies when backend uses rust-native
-# native_chrome_path = "/usr/bin/chromium"  # optional explicit Chrome/Chromium path
+native_webdriver_url = "http://127.0.0.1:9515" # WebDriver endpoint (chromedriver/selenium)
+# native_chrome_path = "/usr/bin/chromium"  # optional explicit browser binary for driver
 
 # Rust-native backend build flag:
 # cargo build --release --features browser-native
+# Ensure a WebDriver server is running, e.g. chromedriver --port=9515
 
 [composio]
 enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev

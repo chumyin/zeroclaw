@@ -289,6 +289,9 @@ pub struct BrowserConfig {
     /// Headless mode for rust-native backend
     #[serde(default = "default_true")]
     pub native_headless: bool,
+    /// WebDriver endpoint URL for rust-native backend (e.g. http://127.0.0.1:9515)
+    #[serde(default = "default_browser_webdriver_url")]
+    pub native_webdriver_url: String,
     /// Optional Chrome/Chromium executable path for rust-native backend
     #[serde(default)]
     pub native_chrome_path: Option<String>,
@@ -296,6 +299,10 @@ pub struct BrowserConfig {
 
 fn default_browser_backend() -> String {
     "agent_browser".into()
+}
+
+fn default_browser_webdriver_url() -> String {
+    "http://127.0.0.1:9515".into()
 }
 
 impl Default for BrowserConfig {
@@ -306,6 +313,7 @@ impl Default for BrowserConfig {
             session_name: None,
             backend: default_browser_backend(),
             native_headless: default_true(),
+            native_webdriver_url: default_browser_webdriver_url(),
             native_chrome_path: None,
         }
     }
@@ -2123,6 +2131,7 @@ default_temperature = 0.7
         assert!(b.allowed_domains.is_empty());
         assert_eq!(b.backend, "agent_browser");
         assert!(b.native_headless);
+        assert_eq!(b.native_webdriver_url, "http://127.0.0.1:9515");
         assert!(b.native_chrome_path.is_none());
     }
 
@@ -2134,6 +2143,7 @@ default_temperature = 0.7
             session_name: None,
             backend: "auto".into(),
             native_headless: false,
+            native_webdriver_url: "http://localhost:4444".into(),
             native_chrome_path: Some("/usr/bin/chromium".into()),
         };
         let toml_str = toml::to_string(&b).unwrap();
@@ -2143,6 +2153,7 @@ default_temperature = 0.7
         assert_eq!(parsed.allowed_domains[0], "example.com");
         assert_eq!(parsed.backend, "auto");
         assert!(!parsed.native_headless);
+        assert_eq!(parsed.native_webdriver_url, "http://localhost:4444");
         assert_eq!(
             parsed.native_chrome_path.as_deref(),
             Some("/usr/bin/chromium")
