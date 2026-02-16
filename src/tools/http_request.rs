@@ -124,10 +124,7 @@ impl HttpRequestTool {
 
     fn truncate_response(&self, text: &str) -> String {
         if text.len() > self.max_response_size {
-            let mut truncated = text
-                .chars()
-                .take(self.max_response_size)
-                .collect::<String>();
+            let mut truncated = text.chars().take(self.max_response_size).collect::<String>();
             truncated.push_str("\n\n... [Response truncated due to size limit] ...");
             truncated
         } else {
@@ -224,10 +221,7 @@ impl Tool for HttpRequestTool {
 
         let sanitized_headers = self.sanitize_headers(&headers_val);
 
-        match self
-            .execute_request(&url, method, sanitized_headers, body)
-            .await
-        {
+        match self.execute_request(&url, method, sanitized_headers, body).await {
             Ok(response) => {
                 let status = response.status();
                 let status_code = status.as_u16();
@@ -413,12 +407,7 @@ mod tests {
             autonomy: AutonomyLevel::Supervised,
             ..SecurityPolicy::default()
         });
-        HttpRequestTool::new(
-            security,
-            allowed_domains.into_iter().map(String::from).collect(),
-            1_000_000,
-            30,
-        )
+        HttpRequestTool::new(security, allowed_domains.into_iter().map(String::from).collect(), 1_000_000, 30)
     }
 
     #[test]
@@ -609,14 +598,8 @@ mod tests {
         });
         let sanitized = tool.sanitize_headers(&headers);
         assert_eq!(sanitized.len(), 3);
-        assert!(sanitized
-            .iter()
-            .any(|(k, v)| k == "Authorization" && v == "***REDACTED***"));
-        assert!(sanitized
-            .iter()
-            .any(|(k, v)| k == "X-API-Key" && v == "***REDACTED***"));
-        assert!(sanitized
-            .iter()
-            .any(|(k, v)| k == "Content-Type" && v == "application/json"));
+        assert!(sanitized.iter().any(|(k, v)| k == "Authorization" && v == "***REDACTED***"));
+        assert!(sanitized.iter().any(|(k, v)| k == "X-API-Key" && v == "***REDACTED***"));
+        assert!(sanitized.iter().any(|(k, v)| k == "Content-Type" && v == "application/json"));
     }
 }

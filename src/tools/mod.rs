@@ -320,15 +320,7 @@ mod tests {
             },
         );
 
-        let tools = all_tools(
-            &security,
-            mem,
-            None,
-            &browser,
-            &http,
-            &agents,
-            Some("sk-test"),
-        );
+        let tools = all_tools(&security, mem, None, &browser, &http, &agents, Some("sk-test"));
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"delegate"));
     }
