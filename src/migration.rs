@@ -542,4 +542,16 @@ mod tests {
         let target_mem = SqliteMemory::new(target.path()).unwrap();
         assert_eq!(target_mem.count().await.unwrap(), 0);
     }
+
+    #[test]
+    fn migration_target_rejects_none_backend() {
+        let target = TempDir::new().unwrap();
+        let mut config = test_config(target.path());
+        config.memory.backend = "none".to_string();
+
+        let err = target_memory_backend(&config)
+            .err()
+            .expect("backend=none should be rejected for migration target");
+        assert!(err.to_string().contains("disables persistence"));
+    }
 }

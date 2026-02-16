@@ -170,6 +170,8 @@ embedding_provider = "openai"
 vector_weight = 0.7
 keyword_weight = 0.3
 
+# backend = "none" uses an explicit no-op memory backend (no persistence)
+
 # Optional for backend = "lucid"
 # ZEROCLAW_LUCID_CMD=/usr/local/bin/lucid   # default: lucid
 # ZEROCLAW_LUCID_BUDGET=200                 # default: 200
@@ -277,6 +279,8 @@ auto_save = true
 embedding_provider = "openai"   # "openai", "noop"
 vector_weight = 0.7
 keyword_weight = 0.3
+
+# backend = "none" disables persistent memory via no-op backend
 
 [gateway]
 require_pairing = true          # require pairing code on first connect

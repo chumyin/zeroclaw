@@ -4,6 +4,7 @@ pub mod embeddings;
 pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
+pub mod none;
 pub mod sqlite;
 pub mod traits;
 pub mod vector;
@@ -15,6 +16,7 @@ pub use backend::{
 };
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
+pub use none::NoneMemory;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
@@ -39,9 +41,10 @@ where
             let local = sqlite_builder()?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
-        MemoryBackendKind::Markdown | MemoryBackendKind::None => {
+        MemoryBackendKind::Markdown => {
             Ok(Box::new(MarkdownMemory::new(workspace_dir)))
         }
+        MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
         MemoryBackendKind::Unknown => {
             tracing::warn!(
                 "Unknown memory backend '{backend_name}'{unknown_context}, falling back to markdown"
@@ -98,6 +101,12 @@ pub fn create_memory_for_migration(
     backend: &str,
     workspace_dir: &Path,
 ) -> anyhow::Result<Box<dyn Memory>> {
+    if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
+        anyhow::bail!(
+            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
+        );
+    }
+
     create_memory_with_sqlite_builder(
         backend,
         workspace_dir,
@@ -145,14 +154,14 @@ mod tests {
     }
 
     #[test]
-    fn factory_none_falls_back_to_markdown() {
+    fn factory_none_uses_noop_memory() {
         let tmp = TempDir::new().unwrap();
         let cfg = MemoryConfig {
             backend: "none".into(),
             ..MemoryConfig::default()
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        assert_eq!(mem.name(), "markdown");
+        assert_eq!(mem.name(), "none");
     }
 
     #[test]
@@ -171,5 +180,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mem = create_memory_for_migration("lucid", tmp.path()).unwrap();
         assert_eq!(mem.name(), "lucid");
+    }
+
+    #[test]
+    fn migration_factory_none_is_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let error = create_memory_for_migration("none", tmp.path())
+            .err()
+            .expect("backend=none should be rejected for migration");
+        assert!(error.to_string().contains("disables persistence"));
     }
 }
