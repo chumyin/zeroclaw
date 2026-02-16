@@ -172,3 +172,4 @@ impl Provider for OpenRouterProvider {
             .ok_or_else(|| anyhow::anyhow!("No response from OpenRouter"))
     }
 }
+
