@@ -140,6 +140,28 @@ src/
 └── security/        # Sandboxing        → SecurityPolicy
 ```
 
+## Code Naming Conventions (Required)
+
+Use these defaults unless an existing subsystem pattern clearly overrides them.
+
+- **Rust casing**: modules/files `snake_case`, types/traits/enums `PascalCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
+- **Domain-first naming**: prefer explicit role names such as `DiscordChannel`, `SecurityPolicy`, `SqliteMemory` over ambiguous names (`Manager`, `Util`, `Helper`).
+- **Trait implementers**: keep predictable suffixes (`*Provider`, `*Channel`, `*Tool`, `*Memory`, `*Observer`, `*RuntimeAdapter`).
+- **Factory keys**: keep lowercase and stable (`openai`, `discord`, `shell`); avoid adding aliases without migration need.
+- **Tests**: use behavior-oriented names (`subject_expected_behavior`) and neutral project-scoped fixtures.
+- **Identity-like labels**: if unavoidable, use ZeroClaw-native identifiers only (`ZeroClawAgent`, `zeroclaw_user`, `zeroclaw_node`).
+
+## Architecture Boundary Rules (Required)
+
+Keep architecture extensible and auditable by following these boundaries.
+
+- Extend features via trait implementations + factory registration before considering broad refactors.
+- Keep dependency direction contract-first: concrete integrations depend on shared traits/config/util, not on other concrete integrations.
+- Avoid cross-subsystem coupling (provider ↔ channel internals, tools mutating security/gateway internals directly, etc.).
+- Keep responsibilities single-purpose by module (`agent` orchestration, `channels` transport, `providers` model I/O, `security` policy, `tools` execution, `memory` persistence).
+- Introduce shared abstractions only after repeated stable use (rule-of-three) and at least one current caller.
+- Treat `src/config/schema.rs` keys as public contract; document compatibility impact, migration steps, and rollback path for changes.
+
 ## How to Add a New Provider
 
 Create `src/providers/your_provider.rs`:
@@ -280,6 +302,7 @@ impl Tool for YourTool {
 - [ ] No new dependencies unless absolutely necessary (we optimize for binary size)
 - [ ] README updated if adding user-facing features
 - [ ] Follows existing code patterns and conventions
+- [ ] Follows code naming conventions and architecture boundary rules in this guide
 - [ ] No personal/sensitive data in code/docs/tests/fixtures/logs/examples/commit messages
 - [ ] Test names/messages/fixtures/examples are neutral and project-focused
 - [ ] Any required identity-like wording uses ZeroClaw/project-native labels only

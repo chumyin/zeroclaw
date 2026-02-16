@@ -172,6 +172,28 @@ When uncertain, classify as higher risk.
    - If stacked PR: declare `Depends on #...`.
    - If replacing old PR: declare `Supersedes #...`.
 
+### 6.1 Code Naming Contract (Required)
+
+Apply these naming rules for all code changes unless a subsystem has a stronger existing pattern.
+
+- Use Rust standard casing consistently: modules/files `snake_case`, types/traits/enums `PascalCase`, functions/variables `snake_case`, constants/statics `SCREAMING_SNAKE_CASE`.
+- Name types and modules by domain role, not implementation detail (for example `DiscordChannel`, `SecurityPolicy`, `MemoryStore` over vague names like `Manager`/`Helper`).
+- Keep trait implementer naming explicit and predictable: `<ProviderName>Provider`, `<ChannelName>Channel`, `<ToolName>Tool`, `<BackendName>Memory`.
+- Keep factory registration keys stable, lowercase, and user-facing (for example `"openai"`, `"discord"`, `"shell"`), and avoid alias sprawl without migration need.
+- Name tests by behavior/outcome (`<subject>_<expected_behavior>`) and keep fixture identifiers neutral/project-scoped.
+- If identity-like naming is required in tests/examples, use ZeroClaw-native labels only (`ZeroClawAgent`, `zeroclaw_user`, `zeroclaw_node`).
+
+### 6.2 Architecture Boundary Contract (Required)
+
+Use these rules to keep the trait/factory architecture stable under growth.
+
+- Extend capabilities by adding trait implementations + factory wiring first; avoid cross-module rewrites for isolated features.
+- Keep dependency direction inward to contracts: concrete integrations depend on trait/config/util layers, not on other concrete integrations.
+- Avoid creating cross-subsystem coupling (for example provider code importing channel internals, tool code mutating gateway policy directly).
+- Keep module responsibilities single-purpose: orchestration in `agent/`, transport in `channels/`, model I/O in `providers/`, policy in `security/`, execution in `tools/`.
+- Introduce new shared abstractions only after repeated use (rule-of-three), with at least one real caller in current scope.
+- For config/schema changes, treat keys as public contract: document defaults, compatibility impact, and migration/rollback path.
+
 ## 7) Change Playbooks
 
 ### 7.1 Adding a Provider

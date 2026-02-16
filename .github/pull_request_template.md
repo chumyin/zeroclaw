@@ -99,6 +99,7 @@ What was personally validated beyond CI:
 - [ ] If agent/automation tools were used, I added brief workflow notes.
 - [ ] I included concrete validation evidence for this change.
 - [ ] I can explain design choices, runtime behavior, and rollback steps.
+- [ ] I followed code naming conventions and architecture boundaries (`AGENTS.md` + `CONTRIBUTING.md`).
 
 If agent tools were used, optional context:
 
