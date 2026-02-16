@@ -1596,3 +1596,4 @@ mod tests {
         assert!(calls.load(Ordering::SeqCst) >= 1);
     }
 }
+
