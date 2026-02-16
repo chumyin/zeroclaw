@@ -26,7 +26,7 @@ Related references:
 
 This workflow is intentionally layered to reduce reviewer load while keeping accountability clear:
 
-1. **Intake classification**: path/size/risk labels route the PR to the right review depth.
+1. **Intake classification**: path/size/risk/module labels route the PR to the right review depth.
 2. **Deterministic validation**: merge gate depends on reproducible checks, not subjective comments.
 3. **Risk-based review depth**: high-risk paths trigger deep review; low-risk paths stay fast.
 4. **Rollback-first merge contract**: every merge path includes concrete recovery steps.
@@ -49,7 +49,7 @@ Maintain these branch protection rules on `main`:
 ### Step A: Intake
 
 - Contributor opens PR with full `.github/pull_request_template.md`.
-- `PR Labeler` applies path labels + size labels + risk labels.
+- `PR Labeler` applies path labels + size labels + risk labels + module labels (for example `channel:telegram`, `provider:kimi`, `tool:shell`).
 - `Auto Response` posts first-time guidance and handles label-driven routing for low-signal items.
 
 ### Step B: Validation
@@ -239,6 +239,7 @@ Label discipline:
 - Path labels identify subsystem ownership quickly.
 - Size labels drive batching strategy.
 - Risk labels drive review depth (`risk: low/medium/high`).
+- Module labels (`<module>:<component>`) improve reviewer routing for integration-specific changes and future newly-added modules.
 - `risk: manual` allows maintainers to preserve a human risk judgment when automation lacks context.
 - `no-stale` is reserved for accepted-but-blocked work.
 

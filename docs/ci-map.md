@@ -27,7 +27,8 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ### Optional Repository Automation
 
 - `.github/workflows/labeler.yml` (`PR Labeler`)
-    - Purpose: path labels + size labels + risk labels (`risk: low/medium/high`)
+    - Purpose: path labels + size/risk labels + fine-grained module labels (`<module>:<component>`)
+    - Additional behavior: provider-related keywords in provider/config/onboard/integration changes are promoted to `provider:*` labels (for example `provider:kimi`, `provider:deepseek`)
     - High-risk heuristic paths: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`
     - Guardrail: maintainers can apply `risk: manual` to freeze automated risk recalculation
 - `.github/workflows/auto-response.yml` (`Auto Response`)

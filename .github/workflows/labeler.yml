@@ -17,8 +17,9 @@ jobs:
         uses: actions/labeler@v5
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          sync-labels: true
 
-      - name: Apply size and risk labels
+      - name: Apply size/risk/module labels
         uses: actions/github-script@v7
         with:
           script: |
@@ -29,7 +30,8 @@ jobs:
             const sizeLabels = ["size: XS", "size: S", "size: M", "size: L", "size: XL"];
             const computedRiskLabels = ["risk: low", "risk: medium", "risk: high"];
             const manualRiskOverrideLabel = "risk: manual";
-            const labelColors = {
+
+            const staticLabelColors = {
               "size: XS": "BFDADC",
               "size: S": "BFDADC",
               "size: M": "BFDADC",
@@ -40,6 +42,63 @@ jobs:
               "risk: high": "D73A49",
               "risk: manual": "1F6FEB",
             };
+
+            const modulePrefixColors = {
+              "agent:": "6E7781",
+              "channel:": "1D76DB",
+              "config:": "0E8A16",
+              "gateway:": "D73A49",
+              "integration:": "5319E7",
+              "memory:": "BFD4F2",
+              "observability:": "8B949E",
+              "provider:": "5319E7",
+              "runtime:": "FBCA04",
+              "security:": "D73A49",
+              "tool:": "0E8A16",
+              "tunnel:": "6E7781",
+            };
+
+            const moduleNamespaceRules = [
+              { root: "src/agent/", prefix: "agent", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/channels/", prefix: "channel", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/config/", prefix: "config", coreEntries: new Set(["mod.rs", "schema.rs"]) },
+              { root: "src/gateway/", prefix: "gateway", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/integrations/", prefix: "integration", coreEntries: new Set(["mod.rs", "registry.rs"]) },
+              { root: "src/memory/", prefix: "memory", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/observability/", prefix: "observability", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/providers/", prefix: "provider", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/runtime/", prefix: "runtime", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/security/", prefix: "security", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/tools/", prefix: "tool", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/tunnel/", prefix: "tunnel", coreEntries: new Set(["mod.rs"]) },
+            ];
+            const managedModulePrefixes = [...new Set(moduleNamespaceRules.map((rule) => `${rule.prefix}:`))];
+
+            const providerKeywordHints = [
+              "deepseek",
+              "moonshot",
+              "kimi",
+              "perplexity",
+              "venice",
+              "vercel",
+              "cloudflare",
+              "synthetic",
+              "opencode",
+              "zai",
+              "glm",
+              "minimax",
+              "bedrock",
+              "qianfan",
+              "groq",
+              "together",
+              "fireworks",
+              "cohere",
+              "openai",
+              "openrouter",
+              "anthropic",
+              "gemini",
+              "ollama",
+            ];
 
             function isDocsLike(path) {
               return (
@@ -53,12 +112,85 @@ jobs:
               );
             }
 
+            function normalizeLabelSegment(segment) {
+              return (segment || "")
+                .toLowerCase()
+                .replace(/\.rs$/g, "")
+                .replace(/[^a-z0-9_-]+/g, "-")
+                .replace(/^-+|-+$/g, "")
+                .slice(0, 40);
+            }
+
+            function containsKeyword(text, keyword) {
+              const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const pattern = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "i");
+              return pattern.test(text);
+            }
+
+            function colorForLabel(label) {
+              if (staticLabelColors[label]) return staticLabelColors[label];
+              const matchedPrefix = Object.keys(modulePrefixColors).find((prefix) => label.startsWith(prefix));
+              if (matchedPrefix) return modulePrefixColors[matchedPrefix];
+              return "BFDADC";
+            }
+
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner,
               repo,
               pull_number: pr.number,
               per_page: 100,
             });
+
+            const detectedModuleLabels = new Set();
+            for (const file of files) {
+              const path = (file.filename || "").toLowerCase();
+              for (const rule of moduleNamespaceRules) {
+                if (!path.startsWith(rule.root)) continue;
+
+                const relative = path.slice(rule.root.length);
+                if (!relative) continue;
+
+                const first = relative.split("/")[0];
+                const firstStem = first.endsWith(".rs") ? first.slice(0, -3) : first;
+                let segment = firstStem;
+
+                if (rule.coreEntries.has(first) || rule.coreEntries.has(firstStem)) {
+                  segment = "core";
+                }
+
+                segment = normalizeLabelSegment(segment);
+                if (!segment) continue;
+
+                detectedModuleLabels.add(`${rule.prefix}:${segment}`);
+              }
+            }
+
+            const providerRelevantFiles = files.filter((file) => {
+              const path = file.filename || "";
+              return (
+                path.startsWith("src/providers/") ||
+                path.startsWith("src/integrations/") ||
+                path.startsWith("src/onboard/") ||
+                path.startsWith("src/config/")
+              );
+            });
+
+            if (providerRelevantFiles.length > 0) {
+              const searchableText = [
+                pr.title || "",
+                pr.body || "",
+                ...providerRelevantFiles.map((file) => file.filename || ""),
+                ...providerRelevantFiles.map((file) => file.patch || ""),
+              ]
+                .join("\n")
+                .toLowerCase();
+
+              for (const keyword of providerKeywordHints) {
+                if (containsKeyword(searchableText, keyword)) {
+                  detectedModuleLabels.add(`provider:${keyword}`);
+                }
+              }
+            }
 
             const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
               owner,
@@ -111,7 +243,14 @@ jobs:
               riskLabel = "risk: medium";
             }
 
-            for (const label of [...sizeLabels, ...computedRiskLabels, manualRiskOverrideLabel]) {
+            const labelsToEnsure = new Set([
+              ...sizeLabels,
+              ...computedRiskLabels,
+              manualRiskOverrideLabel,
+              ...detectedModuleLabels,
+            ]);
+
+            for (const label of labelsToEnsure) {
               try {
                 await github.rest.issues.getLabel({
                   owner,
@@ -124,22 +263,27 @@ jobs:
                   owner,
                   repo,
                   name: label,
-                  color: labelColors[label],
+                  color: colorForLabel(label),
                 });
               }
             }
 
             const hasManualRiskOverride = currentLabelNames.includes(manualRiskOverrideLabel);
-            const keepNonManagedLabels = currentLabelNames.filter(
-              (label) => !sizeLabels.includes(label) && !computedRiskLabels.includes(label)
-            );
+            const keepNonManagedLabels = currentLabelNames.filter((label) => {
+              if (label === manualRiskOverrideLabel) return true;
+              if (sizeLabels.includes(label) || computedRiskLabels.includes(label)) return false;
+              if (managedModulePrefixes.some((prefix) => label.startsWith(prefix))) return false;
+              return true;
+            });
 
             const manualRiskSelection =
               currentLabelNames.find((label) => computedRiskLabels.includes(label)) || riskLabel;
 
+            const moduleLabelList = [...detectedModuleLabels];
             const nextLabels = hasManualRiskOverride
-              ? [...new Set([...keepNonManagedLabels, sizeLabel, manualRiskSelection])]
-              : [...new Set([...keepNonManagedLabels, sizeLabel, riskLabel])];
+              ? [...new Set([...keepNonManagedLabels, ...moduleLabelList, sizeLabel, manualRiskSelection])]
+              : [...new Set([...keepNonManagedLabels, ...moduleLabelList, sizeLabel, riskLabel])];
+
             await github.rest.issues.setLabels({
               owner,
               repo,
