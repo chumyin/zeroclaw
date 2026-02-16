@@ -1,5 +1,6 @@
 pub mod schema;
 
+#[allow(unused_imports)]
 pub use schema::{
     AutonomyConfig, AuditConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config,
     DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig, GatewayConfig, HeartbeatConfig,

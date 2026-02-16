@@ -128,7 +128,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
-| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional) | Any capability |
+| **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), browser (agent-browser / rust-native), composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
 | **Runtime** | `RuntimeAdapter` | Native, Docker (sandboxed) | WASM (planned; unsupported kinds fail fast) |
 | **Security** | `SecurityPolicy` | Gateway pairing, sandbox, allowlists, rate limits, filesystem scoping, encrypted secrets | — |
@@ -302,8 +302,14 @@ provider = "none"               # "none", "cloudflare", "tailscale", "ngrok", "c
 encrypt = true                  # API keys encrypted with local key file
 
 [browser]
-enabled = false                 # opt-in browser_open tool
-allowed_domains = ["docs.rs"]  # required when browser is enabled
+enabled = false                        # opt-in browser_open + browser tools
+allowed_domains = ["docs.rs"]         # required when browser is enabled
+backend = "agent_browser"             # "agent_browser" (default), "rust_native", "auto"
+native_headless = true                 # applies when backend uses rust-native
+# native_chrome_path = "/usr/bin/chromium"  # optional explicit Chrome/Chromium path
+
+# Rust-native backend build flag:
+# cargo build --release --features browser-native
 
 [composio]
 enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
