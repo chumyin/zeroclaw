@@ -8,7 +8,7 @@ updates:
     target-branch: main
     open-pull-requests-limit: 5
     labels:
-      - "type: dependencies"
+      - "dependencies"
     groups:
       rust-minor-patch:
         patterns:
@@ -24,8 +24,8 @@ updates:
     target-branch: main
     open-pull-requests-limit: 3
     labels:
-      - "type: ci"
-      - "type: dependencies"
+      - "ci"
+      - "dependencies"
     groups:
       actions-minor-patch:
         patterns:

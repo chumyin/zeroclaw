@@ -11,10 +11,9 @@ Describe this PR in 2-5 bullets:
 
 - Risk label (`risk: low|medium|high`):
 - Size label (`size: XS|S|M|L|XL`):
-- Area labels (`area:*`, comma-separated):
+- Scope labels (`core|agent|channel|config|cron|daemon|doctor|gateway|health|heartbeat|integration|memory|observability|onboard|provider|runtime|security|service|skillforge|skills|tool|tunnel|docs|dependencies|ci|tests|scripts|dev`, comma-separated):
 - Module labels (`<module>:<component>`, for example `channel:telegram`, `provider:kimi`, `tool:shell`):
-- Contributor trust label (`trusted contributor`, auto when author has >=5 merged PRs):
-- Collaboration track is derived from risk (`A=low`, `B=medium`, `C=high`) unless maintainers override.
+- Contributor tier label (`experienced contributor|principal contributor|distinguished contributor`, auto when author has >=10/20/50 merged PRs):
 - If any auto-label is incorrect, note requested correction:
 
 ## Change Metadata

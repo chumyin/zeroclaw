@@ -30,8 +30,71 @@ jobs:
             const sizeLabels = ["size: XS", "size: S", "size: M", "size: L", "size: XL"];
             const computedRiskLabels = ["risk: low", "risk: medium", "risk: high"];
             const manualRiskOverrideLabel = "risk: manual";
-            const trustedContributorLabel = "trusted contributor";
-            const trustedContributorMinMergedPRs = 5;
+            const legacyTrustedContributorLabel = "trusted contributor";
+
+            const contributorTierRules = [
+              { label: "distinguished contributor", minMergedPRs: 50 },
+              { label: "principal contributor", minMergedPRs: 20 },
+              { label: "experienced contributor", minMergedPRs: 10 },
+            ];
+            const contributorTierLabels = contributorTierRules.map((rule) => rule.label);
+            const contributorTierColor = "39FF14";
+
+            const managedPathLabels = [
+              "docs",
+              "dependencies",
+              "ci",
+              "core",
+              "agent",
+              "channel",
+              "config",
+              "cron",
+              "daemon",
+              "doctor",
+              "gateway",
+              "health",
+              "heartbeat",
+              "integration",
+              "memory",
+              "observability",
+              "onboard",
+              "provider",
+              "runtime",
+              "security",
+              "service",
+              "skillforge",
+              "skills",
+              "tool",
+              "tunnel",
+              "tests",
+              "scripts",
+              "dev",
+            ];
+
+            const moduleNamespaceRules = [
+              { root: "src/agent/", prefix: "agent", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/channels/", prefix: "channel", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/config/", prefix: "config", coreEntries: new Set(["mod.rs", "schema.rs"]) },
+              { root: "src/cron/", prefix: "cron", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/daemon/", prefix: "daemon", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/doctor/", prefix: "doctor", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/gateway/", prefix: "gateway", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/health/", prefix: "health", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/heartbeat/", prefix: "heartbeat", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/integrations/", prefix: "integration", coreEntries: new Set(["mod.rs", "registry.rs"]) },
+              { root: "src/memory/", prefix: "memory", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/observability/", prefix: "observability", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/onboard/", prefix: "onboard", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/providers/", prefix: "provider", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/runtime/", prefix: "runtime", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/security/", prefix: "security", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/service/", prefix: "service", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/skillforge/", prefix: "skillforge", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/skills/", prefix: "skills", coreEntries: new Set(["mod.rs"]) },
+              { root: "src/tools/", prefix: "tool", coreEntries: new Set(["mod.rs", "traits.rs"]) },
+              { root: "src/tunnel/", prefix: "tunnel", coreEntries: new Set(["mod.rs"]) },
+            ];
+            const managedModulePrefixes = [...new Set(moduleNamespaceRules.map((rule) => `${rule.prefix}:`))];
 
             const staticLabelColors = {
               "size: XS": "BFDADC",
@@ -43,44 +106,75 @@ jobs:
               "risk: medium": "FBCA04",
               "risk: high": "D73A49",
               "risk: manual": "1F6FEB",
-              [trustedContributorLabel]: "0E8A16",
+              docs: "1D76DB",
+              dependencies: "C26F00",
+              ci: "8250DF",
+              core: "24292F",
+              agent: "2EA043",
+              channel: "1D76DB",
+              config: "0969DA",
+              cron: "9A6700",
+              daemon: "57606A",
+              doctor: "0E8A8A",
+              gateway: "D73A49",
+              health: "0E8A8A",
+              heartbeat: "0E8A8A",
+              integration: "8250DF",
+              memory: "1F883D",
+              observability: "6E7781",
+              onboard: "B62DBA",
+              provider: "5319E7",
+              runtime: "C26F00",
+              security: "B60205",
+              service: "0052CC",
+              skillforge: "A371F7",
+              skills: "6F42C1",
+              tool: "D73A49",
+              tunnel: "0052CC",
+              tests: "0E8A16",
+              scripts: "B08800",
+              dev: "6E7781",
             };
+            for (const label of contributorTierLabels) {
+              staticLabelColors[label] = contributorTierColor;
+            }
 
             const modulePrefixColors = {
-              "agent:": "6E7781",
+              "agent:": "2EA043",
               "channel:": "1D76DB",
-              "config:": "0E8A16",
+              "config:": "0969DA",
+              "cron:": "9A6700",
+              "daemon:": "57606A",
+              "doctor:": "0E8A8A",
               "gateway:": "D73A49",
-              "integration:": "5319E7",
-              "memory:": "BFD4F2",
-              "observability:": "8B949E",
+              "health:": "0E8A8A",
+              "heartbeat:": "0E8A8A",
+              "integration:": "8250DF",
+              "memory:": "1F883D",
+              "observability:": "6E7781",
+              "onboard:": "B62DBA",
               "provider:": "5319E7",
-              "runtime:": "FBCA04",
-              "security:": "D73A49",
-              "tool:": "0E8A16",
-              "tunnel:": "6E7781",
+              "runtime:": "C26F00",
+              "security:": "B60205",
+              "service:": "0052CC",
+              "skillforge:": "A371F7",
+              "skills:": "6F42C1",
+              "tool:": "D73A49",
+              "tunnel:": "0052CC",
             };
-
-            const moduleNamespaceRules = [
-              { root: "src/agent/", prefix: "agent", coreEntries: new Set(["mod.rs"]) },
-              { root: "src/channels/", prefix: "channel", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/config/", prefix: "config", coreEntries: new Set(["mod.rs", "schema.rs"]) },
-              { root: "src/gateway/", prefix: "gateway", coreEntries: new Set(["mod.rs"]) },
-              { root: "src/integrations/", prefix: "integration", coreEntries: new Set(["mod.rs", "registry.rs"]) },
-              { root: "src/memory/", prefix: "memory", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/observability/", prefix: "observability", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/providers/", prefix: "provider", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/runtime/", prefix: "runtime", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/security/", prefix: "security", coreEntries: new Set(["mod.rs"]) },
-              { root: "src/tools/", prefix: "tool", coreEntries: new Set(["mod.rs", "traits.rs"]) },
-              { root: "src/tunnel/", prefix: "tunnel", coreEntries: new Set(["mod.rs"]) },
-            ];
-            const managedModulePrefixes = [...new Set(moduleNamespaceRules.map((rule) => `${rule.prefix}:`))];
 
             const providerKeywordHints = [
               "deepseek",
               "moonshot",
               "kimi",
+              "qwen",
+              "mistral",
+              "doubao",
+              "baichuan",
+              "yi",
+              "siliconflow",
+              "vertex",
+              "azure",
               "perplexity",
               "venice",
               "vercel",
@@ -101,6 +195,18 @@ jobs:
               "anthropic",
               "gemini",
               "ollama",
+            ];
+
+            const channelKeywordHints = [
+              "telegram",
+              "discord",
+              "slack",
+              "whatsapp",
+              "matrix",
+              "irc",
+              "imessage",
+              "email",
+              "cli",
             ];
 
             function isDocsLike(path) {
@@ -135,6 +241,36 @@ jobs:
               const matchedPrefix = Object.keys(modulePrefixColors).find((prefix) => label.startsWith(prefix));
               if (matchedPrefix) return modulePrefixColors[matchedPrefix];
               return "BFDADC";
+            }
+
+            async function ensureLabel(name) {
+              const expectedColor = colorForLabel(name);
+              try {
+                const { data: existing } = await github.rest.issues.getLabel({ owner, repo, name });
+                const currentColor = (existing.color || "").toUpperCase();
+                if (currentColor !== expectedColor) {
+                  await github.rest.issues.updateLabel({
+                    owner,
+                    repo,
+                    name,
+                    new_name: name,
+                    color: expectedColor,
+                  });
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: expectedColor,
+                });
+              }
+            }
+
+            function selectContributorTier(mergedCount) {
+              const matchedTier = contributorTierRules.find((rule) => mergedCount >= rule.minMergedPRs);
+              return matchedTier ? matchedTier.label : null;
             }
 
             const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -195,6 +331,32 @@ jobs:
               }
             }
 
+            const channelRelevantFiles = files.filter((file) => {
+              const path = file.filename || "";
+              return (
+                path.startsWith("src/channels/") ||
+                path.startsWith("src/onboard/") ||
+                path.startsWith("src/config/")
+              );
+            });
+
+            if (channelRelevantFiles.length > 0) {
+              const searchableText = [
+                pr.title || "",
+                pr.body || "",
+                ...channelRelevantFiles.map((file) => file.filename || ""),
+                ...channelRelevantFiles.map((file) => file.patch || ""),
+              ]
+                .join("\n")
+                .toLowerCase();
+
+              for (const keyword of channelKeywordHints) {
+                if (containsKeyword(searchableText, keyword)) {
+                  detectedModuleLabels.add(`channel:${keyword}`);
+                }
+              }
+            }
+
             const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
               owner,
               repo,
@@ -250,29 +412,16 @@ jobs:
               ...sizeLabels,
               ...computedRiskLabels,
               manualRiskOverrideLabel,
-              trustedContributorLabel,
+              ...managedPathLabels,
+              ...contributorTierLabels,
               ...detectedModuleLabels,
             ]);
 
             for (const label of labelsToEnsure) {
-              try {
-                await github.rest.issues.getLabel({
-                  owner,
-                  repo,
-                  name: label,
-                });
-              } catch (error) {
-                if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({
-                  owner,
-                  repo,
-                  name: label,
-                  color: colorForLabel(label),
-                });
-              }
+              await ensureLabel(label);
             }
 
-            let shouldApplyTrustedContributor = false;
+            let contributorTierLabel = null;
             const authorLogin = pr.user?.login;
             if (authorLogin && pr.user?.type !== "Bot") {
               try {
@@ -281,16 +430,17 @@ jobs:
                   per_page: 1,
                 });
                 const mergedCount = mergedSearch.total_count || 0;
-                shouldApplyTrustedContributor = mergedCount >= trustedContributorMinMergedPRs;
+                contributorTierLabel = selectContributorTier(mergedCount);
               } catch (error) {
-                core.warning(`failed to compute trusted contributor label: ${error.message}`);
+                core.warning(`failed to compute contributor tier label: ${error.message}`);
               }
             }
 
             const hasManualRiskOverride = currentLabelNames.includes(manualRiskOverrideLabel);
             const keepNonManagedLabels = currentLabelNames.filter((label) => {
               if (label === manualRiskOverrideLabel) return true;
-              if (label === trustedContributorLabel) return false;
+              if (label === legacyTrustedContributorLabel) return false;
+              if (contributorTierLabels.includes(label)) return false;
               if (sizeLabels.includes(label) || computedRiskLabels.includes(label)) return false;
               if (managedModulePrefixes.some((prefix) => label.startsWith(prefix))) return false;
               return true;
@@ -300,10 +450,10 @@ jobs:
               currentLabelNames.find((label) => computedRiskLabels.includes(label)) || riskLabel;
 
             const moduleLabelList = [...detectedModuleLabels];
-            const trustedLabelList = shouldApplyTrustedContributor ? [trustedContributorLabel] : [];
+            const contributorLabelList = contributorTierLabel ? [contributorTierLabel] : [];
             const nextLabels = hasManualRiskOverride
-              ? [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...trustedLabelList, sizeLabel, manualRiskSelection])]
-              : [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...trustedLabelList, sizeLabel, riskLabel])];
+              ? [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...contributorLabelList, sizeLabel, manualRiskSelection])]
+              : [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...contributorLabelList, sizeLabel, riskLabel])];
 
             await github.rest.issues.setLabels({
               owner,

@@ -27,13 +27,14 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ### Optional Repository Automation
 
 - `.github/workflows/labeler.yml` (`PR Labeler`)
-    - Purpose: path labels + size/risk labels + fine-grained module labels (`<module>:<component>`)
+    - Purpose: scope/path labels + size/risk labels + fine-grained module labels (`<module>:<component>`)
     - Additional behavior: provider-related keywords in provider/config/onboard/integration changes are promoted to `provider:*` labels (for example `provider:kimi`, `provider:deepseek`)
+    - Additional behavior: applies contributor tiers on PRs by merged PR count (`experienced` >=10, `principal` >=20, `distinguished` >=50)
     - High-risk heuristic paths: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`
     - Guardrail: maintainers can apply `risk: manual` to freeze automated risk recalculation
 - `.github/workflows/auto-response.yml` (`Auto Response`)
     - Purpose: first-time contributor onboarding + label-driven response routing (`r:support`, `r:needs-repro`, etc.)
-    - Additional behavior: applies `trusted contributor` on issues when author has at least 5 merged PRs in this repository
+    - Additional behavior: applies contributor tiers on issues by merged PR count (`experienced` >=10, `principal` >=20, `distinguished` >=50)
     - Guardrail: label-based close routes are issue-only; PRs are never auto-closed by route labels
 - `.github/workflows/stale.yml` (`Stale`)
     - Purpose: stale issue/PR lifecycle automation
