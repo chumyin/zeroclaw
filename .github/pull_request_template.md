@@ -7,30 +7,18 @@ Describe this PR in 2-5 bullets:
 - What changed:
 - What did **not** change (scope boundary):
 
-## Collaboration Track (required)
+## Label Snapshot (required)
 
-- [ ] Track A (low risk: docs/tests/chore)
-- [ ] Track B (medium risk: behavior changes in providers/channels/memory/tools)
-- [ ] Track C (high risk: security/runtime/gateway/workflows/access control)
+- Collaboration track (`A|B|C`):
+- Risk label (`risk: low|medium|high`):
+- Size label (`size: XS|S|M|L|XL`):
+- Area labels (`area:*`, comma-separated):
+- If any auto-label is incorrect, note requested correction:
 
-## Change Type
+## Change Metadata
 
-- [ ] Bug fix
-- [ ] Feature
-- [ ] Refactor
-- [ ] Docs
-- [ ] Security hardening
-- [ ] Chore / infra
-
-## Scope
-
-- [ ] Core runtime / daemon
-- [ ] Provider integration
-- [ ] Channel integration
-- [ ] Memory / storage
-- [ ] Security / sandbox
-- [ ] CI / release / tooling
-- [ ] Documentation
+- Change type (`bug|feature|refactor|docs|security|chore`):
+- Primary scope (`runtime|provider|channel|memory|security|ci|docs|multi`):
 
 ## Linked Issue
 
@@ -49,14 +37,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Attach at least one:
-
-- [ ] Failing test/log before + passing after
-- [ ] Runtime trace/log evidence
-- [ ] Screenshot/recording (if user-facing behavior changed)
-- [ ] Performance numbers (if relevant)
-
-If any command is intentionally skipped, explain why.
+- Evidence provided (test/log/trace/screenshot/perf):
+- If any command is intentionally skipped, explain why:
 
 ## Security Impact (required)
 
@@ -68,10 +50,9 @@ If any command is intentionally skipped, explain why.
 
 ## Privacy and Data Hygiene (required)
 
-- [ ] No personal/sensitive data in code/docs/tests/fixtures/logs/examples/commit messages.
-- [ ] Logs, payloads, screenshots, and reproductions are redacted/anonymized.
-- [ ] Test names/messages/fixtures/examples use neutral project-scoped wording (no identity-specific phrasing).
-- [ ] If identity-like wording is unavoidable, it uses ZeroClaw/project-native labels only.
+- Data-hygiene status (`pass|needs-follow-up`):
+- Redaction/anonymization notes:
+- Neutral wording confirmation (use ZeroClaw/project-native labels if identity-like wording is needed):
 
 ## Compatibility / Migration
 
@@ -96,16 +77,10 @@ What was personally validated beyond CI:
 
 ## Agent Collaboration Notes (recommended)
 
-- [ ] If agent/automation tools were used, I added brief workflow notes.
-- [ ] I included concrete validation evidence for this change.
-- [ ] I can explain design choices, runtime behavior, and rollback steps.
-- [ ] I followed code naming conventions and architecture boundaries (`AGENTS.md` + `CONTRIBUTING.md`).
-
-If agent tools were used, optional context:
-
-- Tool(s):
-- Prompt/plan summary:
+- Agent tools used (if any):
+- Workflow/plan summary (if any):
 - Verification focus:
+- Confirmation: naming + architecture boundaries followed (`AGENTS.md` + `CONTRIBUTING.md`):
 
 ## Rollback Plan (required)
 

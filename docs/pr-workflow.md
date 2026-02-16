@@ -214,7 +214,7 @@ To keep review quality stable under high PR volume, we use a two-lane review mod
 - Confirm CI gate signal (`CI Required Gate`).
 - Confirm risk class via labels and touched paths.
 - Confirm rollback statement exists.
-- Confirm privacy/data-hygiene checklist and neutral wording requirements are satisfied.
+- Confirm privacy/data-hygiene section and neutral wording requirements are satisfied.
 - Confirm any required identity-like wording uses ZeroClaw/project-native terminology.
 
 ### Lane B: Deep review (risk-based)
