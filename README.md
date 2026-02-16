@@ -472,3 +472,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Implement a trait, submit a PR:
 ---
 
 **ZeroClaw** — Zero overhead. Zero compromise. Deploy anywhere. Swap anything. 🦀
+
+## Star History
+
+<p align="center">
+  <a href="https://www.star-history.com/#zeroclaw-labs/zeroclaw&Date">
+    <img src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=Date" alt="Star History Chart" />
+  </a>
+</p>
