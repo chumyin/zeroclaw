@@ -16,10 +16,10 @@ git config core.hooksPath .githooks
 cargo build
 
 # Run tests (all must pass)
-cargo test
+cargo test --locked --verbose
 
 # Format & lint (must pass before PR)
-cargo fmt && cargo clippy -- -D warnings
+bash scripts/ci/rust-lint.sh
 
 # Release build (~3.4MB)
 cargo build --release
@@ -27,7 +27,7 @@ cargo build --release
 
 ### Pre-push hook
 
-The repo includes a pre-push hook in `.githooks/` that enforces `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before every push. Enable it with `git config core.hooksPath .githooks`.
+The repo includes a pre-push hook in `.githooks/` that enforces `bash scripts/ci/rust-lint.sh` and `cargo test --locked --verbose` before every push. Enable it with `git config core.hooksPath .githooks`.
 
 To skip it during rapid iteration:
 
@@ -213,9 +213,8 @@ impl Tool for YourTool {
 ## Pull Request Checklist
 
 - [ ] PR template sections are completed (including security + rollback)
-- [ ] `cargo fmt --all -- --check` — code is formatted
-- [ ] `cargo clippy --all-targets -- -D warnings` — no warnings
-- [ ] `cargo test` — all 129+ tests pass
+- [ ] `bash scripts/ci/rust-lint.sh` — fmt/clippy parity with CI
+- [ ] `cargo test --locked --verbose` — all tests pass
 - [ ] New code has inline `#[cfg(test)]` tests
 - [ ] No new dependencies unless absolutely necessary (we optimize for binary size)
 - [ ] README updated if adding user-facing features

@@ -407,8 +407,9 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 cargo build              # Dev build
 cargo build --release    # Release build (~3.4MB)
 cargo test               # 1,017 tests
-cargo clippy             # Lint (0 warnings)
+cargo clippy             # Lint
 cargo fmt                # Format
+bash scripts/ci/rust-lint.sh # CI-parity lint checks
 
 # Run the SQLite vs Markdown benchmark
 cargo test --test memory_comparison -- --nocapture
@@ -416,7 +417,7 @@ cargo test --test memory_comparison -- --nocapture
 
 ### Pre-push hook
 
-A git hook runs `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before every push. Enable it once:
+A git hook runs `bash scripts/ci/rust-lint.sh` and `cargo test --locked --verbose` before every push. Enable it once:
 
 ```bash
 git config core.hooksPath .githooks

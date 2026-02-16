@@ -36,9 +36,8 @@ Describe this PR in 2-5 bullets:
 Commands and result summary (required):
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+bash scripts/ci/rust-lint.sh
+cargo test --locked --verbose
 ```
 
 If any command is intentionally skipped, explain why.

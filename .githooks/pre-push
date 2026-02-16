@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 #
-# pre-push hook — runs fmt, clippy, and tests before every push.
+# pre-push hook — runs CI-parity lint and tests before every push.
 # Install:  git config core.hooksPath .githooks
 # Skip:     git push --no-verify
 
 set -euo pipefail
 
-echo "==> pre-push: checking formatting..."
-cargo fmt -- --check || {
-    echo "FAIL: cargo fmt -- --check found unformatted code."
-    echo "Run 'cargo fmt' and try again."
+repo_root="$(git rev-parse --show-toplevel)"
+
+echo "==> pre-push: running Rust lint checks (CI parity)..."
+"$repo_root/scripts/ci/rust-lint.sh" || {
+    echo "FAIL: CI-parity rust lint checks failed."
     exit 1
 }
 
-echo "==> pre-push: running clippy..."
-cargo clippy -- -D warnings || {
-    echo "FAIL: clippy reported warnings."
-    exit 1
-}
-
-echo "==> pre-push: running tests..."
-cargo test || {
+echo "==> pre-push: running tests (CI parity)..."
+cargo test --locked --verbose || {
     echo "FAIL: some tests did not pass."
     exit 1
 }
