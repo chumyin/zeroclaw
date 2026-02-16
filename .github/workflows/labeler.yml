@@ -50,7 +50,7 @@ jobs:
               { label: "experienced contributor", minMergedPRs: 10 },
             ];
             const contributorTierLabels = contributorTierRules.map((rule) => rule.label);
-            const contributorTierColor = "39FF14";
+            const contributorTierColor = "BCE784";
 
             const managedPathLabels = [
               "docs",
@@ -165,70 +165,113 @@ jobs:
             );
 
             const staticLabelColors = {
-              "size: XS": "BFDADC",
-              "size: S": "BFDADC",
-              "size: M": "BFDADC",
-              "size: L": "BFDADC",
-              "size: XL": "BFDADC",
-              "risk: low": "2EA043",
-              "risk: medium": "FBCA04",
-              "risk: high": "D73A49",
-              "risk: manual": "1F6FEB",
-              docs: "1D76DB",
-              dependencies: "C26F00",
-              ci: "8250DF",
-              core: "24292F",
-              agent: "2EA043",
-              channel: "1D76DB",
-              config: "0969DA",
-              cron: "9A6700",
-              daemon: "57606A",
-              doctor: "0E8A8A",
-              gateway: "D73A49",
-              health: "0E8A8A",
-              heartbeat: "0E8A8A",
-              integration: "8250DF",
-              memory: "1F883D",
-              observability: "6E7781",
-              onboard: "B62DBA",
-              provider: "5319E7",
-              runtime: "C26F00",
-              security: "B60205",
-              service: "0052CC",
-              skillforge: "A371F7",
-              skills: "6F42C1",
-              tool: "D73A49",
-              tunnel: "0052CC",
-              tests: "0E8A16",
-              scripts: "B08800",
-              dev: "6E7781",
+              "size: XS": "E0FBFC",
+              "size: S": "B8CDF8",
+              "size: M": "CDC7E5",
+              "size: L": "98C1D9",
+              "size: XL": "3D5A80",
+              "risk: low": "BCE784",
+              "risk: medium": "FFEC51",
+              "risk: high": "EE6C4D",
+              "risk: manual": "7776BC",
+              docs: "98C1D9",
+              dependencies: "FFEC51",
+              ci: "7776BC",
+              core: "41463D",
+              agent: "5DD39E",
+              channel: "B8CDF8",
+              config: "CDC7E5",
+              cron: "BCE784",
+              daemon: "525174",
+              doctor: "95F2D9",
+              gateway: "EE6C4D",
+              health: "1CFEBA",
+              heartbeat: "9D8DF1",
+              integration: "348AA7",
+              memory: "3D5A80",
+              observability: "293241",
+              onboard: "FFFBDB",
+              provider: "513B56",
+              runtime: "7776BC",
+              security: "FF674D",
+              service: "98C1D9",
+              skillforge: "9D8DF1",
+              skills: "CDC7E5",
+              tool: "5DD39E",
+              tunnel: "348AA7",
+              tests: "E0FBFC",
+              scripts: "FFFBDB",
+              dev: "B8CDF8",
+            };
+            const staticLabelDescriptions = {
+              "size: XS": "Auto size: <=80 non-doc changed lines.",
+              "size: S": "Auto size: 81-250 non-doc changed lines.",
+              "size: M": "Auto size: 251-500 non-doc changed lines.",
+              "size: L": "Auto size: 501-1000 non-doc changed lines.",
+              "size: XL": "Auto size: >1000 non-doc changed lines.",
+              "risk: low": "Auto risk: docs/chore-only paths.",
+              "risk: medium": "Auto risk: src/** or dependency/config changes.",
+              "risk: high": "Auto risk: security/runtime/gateway/tools/workflows.",
+              "risk: manual": "Maintainer override: keep selected risk label.",
+              docs: "Auto scope: docs/markdown/template files changed.",
+              dependencies: "Auto scope: dependency manifest/lock/policy changed.",
+              ci: "Auto scope: CI/workflow/hook files changed.",
+              core: "Auto scope: root src/*.rs files changed.",
+              agent: "Auto scope: src/agent/** changed.",
+              channel: "Auto scope: src/channels/** changed.",
+              config: "Auto scope: src/config/** changed.",
+              cron: "Auto scope: src/cron/** changed.",
+              daemon: "Auto scope: src/daemon/** changed.",
+              doctor: "Auto scope: src/doctor/** changed.",
+              gateway: "Auto scope: src/gateway/** changed.",
+              health: "Auto scope: src/health/** changed.",
+              heartbeat: "Auto scope: src/heartbeat/** changed.",
+              integration: "Auto scope: src/integrations/** changed.",
+              memory: "Auto scope: src/memory/** changed.",
+              observability: "Auto scope: src/observability/** changed.",
+              onboard: "Auto scope: src/onboard/** changed.",
+              provider: "Auto scope: src/providers/** changed.",
+              runtime: "Auto scope: src/runtime/** changed.",
+              security: "Auto scope: src/security/** changed.",
+              service: "Auto scope: src/service/** changed.",
+              skillforge: "Auto scope: src/skillforge/** changed.",
+              skills: "Auto scope: src/skills/** changed.",
+              tool: "Auto scope: src/tools/** changed.",
+              tunnel: "Auto scope: src/tunnel/** changed.",
+              tests: "Auto scope: tests/** changed.",
+              scripts: "Auto scope: scripts/** changed.",
+              dev: "Auto scope: dev/** changed.",
             };
             for (const label of contributorTierLabels) {
               staticLabelColors[label] = contributorTierColor;
+              const rule = contributorTierRules.find((entry) => entry.label === label);
+              if (rule) {
+                staticLabelDescriptions[label] = `Contributor with ${rule.minMergedPRs}+ merged PRs.`;
+              }
             }
 
             const modulePrefixColors = {
-              "agent:": "2EA043",
-              "channel:": "1D76DB",
-              "config:": "0969DA",
-              "cron:": "9A6700",
-              "daemon:": "57606A",
-              "doctor:": "0E8A8A",
-              "gateway:": "D73A49",
-              "health:": "0E8A8A",
-              "heartbeat:": "0E8A8A",
-              "integration:": "8250DF",
-              "memory:": "1F883D",
-              "observability:": "6E7781",
-              "onboard:": "B62DBA",
-              "provider:": "5319E7",
-              "runtime:": "C26F00",
-              "security:": "B60205",
-              "service:": "0052CC",
-              "skillforge:": "A371F7",
-              "skills:": "6F42C1",
-              "tool:": "D73A49",
-              "tunnel:": "0052CC",
+              "agent:": "5DD39E",
+              "channel:": "B8CDF8",
+              "config:": "CDC7E5",
+              "cron:": "BCE784",
+              "daemon:": "525174",
+              "doctor:": "95F2D9",
+              "gateway:": "EE6C4D",
+              "health:": "1CFEBA",
+              "heartbeat:": "9D8DF1",
+              "integration:": "348AA7",
+              "memory:": "3D5A80",
+              "observability:": "293241",
+              "onboard:": "FFFBDB",
+              "provider:": "513B56",
+              "runtime:": "7776BC",
+              "security:": "FF674D",
+              "service:": "98C1D9",
+              "skillforge:": "9D8DF1",
+              "skills:": "CDC7E5",
+              "tool:": "5DD39E",
+              "tunnel:": "348AA7",
             };
 
             const providerKeywordHints = [
@@ -382,18 +425,35 @@ jobs:
               return "BFDADC";
             }
 
+            function descriptionForLabel(label) {
+              if (staticLabelDescriptions[label]) return staticLabelDescriptions[label];
+
+              const parsed = parseModuleLabel(label);
+              if (parsed) {
+                if (parsed.segment === "core") {
+                  return `Auto module: ${parsed.prefix} core files changed.`;
+                }
+                return `Auto module: ${parsed.prefix}/${parsed.segment} changed.`;
+              }
+
+              return "Auto-managed label.";
+            }
+
             async function ensureLabel(name) {
               const expectedColor = colorForLabel(name);
+              const expectedDescription = descriptionForLabel(name);
               try {
                 const { data: existing } = await github.rest.issues.getLabel({ owner, repo, name });
                 const currentColor = (existing.color || "").toUpperCase();
-                if (currentColor !== expectedColor) {
+                const currentDescription = (existing.description || "").trim();
+                if (currentColor !== expectedColor || currentDescription !== expectedDescription) {
                   await github.rest.issues.updateLabel({
                     owner,
                     repo,
                     name,
                     new_name: name,
                     color: expectedColor,
+                    description: expectedDescription,
                   });
                 }
               } catch (error) {
@@ -403,6 +463,7 @@ jobs:
                   repo,
                   name,
                   color: expectedColor,
+                  description: expectedDescription,
                 });
               }
             }
