@@ -82,6 +82,7 @@ jobs:
               "scripts",
               "dev",
             ];
+            const managedPathLabelSet = new Set(managedPathLabels);
 
             const moduleNamespaceRules = [
               { root: "src/agent/", prefix: "agent", coreEntries: new Set(["mod.rs"]) },
@@ -107,6 +108,61 @@ jobs:
               { root: "src/tunnel/", prefix: "tunnel", coreEntries: new Set(["mod.rs"]) },
             ];
             const managedModulePrefixes = [...new Set(moduleNamespaceRules.map((rule) => `${rule.prefix}:`))];
+            const modulePrefixPriority = [
+              "security",
+              "runtime",
+              "gateway",
+              "tool",
+              "provider",
+              "channel",
+              "config",
+              "memory",
+              "agent",
+              "integration",
+              "observability",
+              "onboard",
+              "service",
+              "tunnel",
+              "cron",
+              "daemon",
+              "doctor",
+              "health",
+              "heartbeat",
+              "skillforge",
+              "skills",
+            ];
+            const pathLabelPriority = [
+              ...modulePrefixPriority,
+              "core",
+              "ci",
+              "dependencies",
+              "tests",
+              "scripts",
+              "dev",
+              "docs",
+            ];
+            const riskDisplayOrder = ["risk: high", "risk: medium", "risk: low", "risk: manual"];
+            const sizeDisplayOrder = ["size: XS", "size: S", "size: M", "size: L", "size: XL"];
+            const contributorDisplayOrder = [
+              "distinguished contributor",
+              "principal contributor",
+              "experienced contributor",
+            ];
+            const modulePrefixPriorityIndex = new Map(
+              modulePrefixPriority.map((prefix, index) => [prefix, index])
+            );
+            const pathLabelPriorityIndex = new Map(
+              pathLabelPriority.map((label, index) => [label, index])
+            );
+            const riskPriorityIndex = new Map(
+              riskDisplayOrder.map((label, index) => [label, index])
+            );
+            const sizePriorityIndex = new Map(
+              sizeDisplayOrder.map((label, index) => [label, index])
+            );
+            const contributorPriorityIndex = new Map(
+              contributorDisplayOrder.map((label, index) => [label, index])
+            );
 
             const staticLabelColors = {
               "size: XS": "BFDADC",
@@ -248,6 +304,77 @@ jobs:
               return pattern.test(text);
             }
 
+            function parseModuleLabel(label) {
+              const separatorIndex = label.indexOf(":");
+              if (separatorIndex <= 0 || separatorIndex >= label.length - 1) return null;
+              return {
+                prefix: label.slice(0, separatorIndex),
+                segment: label.slice(separatorIndex + 1),
+              };
+            }
+
+            function sortByPriority(labels, priorityIndex) {
+              return [...new Set(labels)].sort((left, right) => {
+                const leftPriority = priorityIndex.has(left) ? priorityIndex.get(left) : Number.MAX_SAFE_INTEGER;
+                const rightPriority = priorityIndex.has(right)
+                  ? priorityIndex.get(right)
+                  : Number.MAX_SAFE_INTEGER;
+                if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+                return left.localeCompare(right);
+              });
+            }
+
+            function sortModuleLabels(labels) {
+              return [...new Set(labels)].sort((left, right) => {
+                const leftParsed = parseModuleLabel(left);
+                const rightParsed = parseModuleLabel(right);
+                if (!leftParsed || !rightParsed) return left.localeCompare(right);
+
+                const leftPrefixPriority = modulePrefixPriorityIndex.has(leftParsed.prefix)
+                  ? modulePrefixPriorityIndex.get(leftParsed.prefix)
+                  : Number.MAX_SAFE_INTEGER;
+                const rightPrefixPriority = modulePrefixPriorityIndex.has(rightParsed.prefix)
+                  ? modulePrefixPriorityIndex.get(rightParsed.prefix)
+                  : Number.MAX_SAFE_INTEGER;
+
+                if (leftPrefixPriority !== rightPrefixPriority) {
+                  return leftPrefixPriority - rightPrefixPriority;
+                }
+                if (leftParsed.prefix !== rightParsed.prefix) {
+                  return leftParsed.prefix.localeCompare(rightParsed.prefix);
+                }
+
+                const leftIsCore = leftParsed.segment === "core";
+                const rightIsCore = rightParsed.segment === "core";
+                if (leftIsCore !== rightIsCore) return leftIsCore ? 1 : -1;
+
+                return leftParsed.segment.localeCompare(rightParsed.segment);
+              });
+            }
+
+            function refineModuleLabels(rawLabels) {
+              const refined = new Set(rawLabels);
+              const segmentsByPrefix = new Map();
+
+              for (const label of rawLabels) {
+                const parsed = parseModuleLabel(label);
+                if (!parsed) continue;
+                if (!segmentsByPrefix.has(parsed.prefix)) {
+                  segmentsByPrefix.set(parsed.prefix, new Set());
+                }
+                segmentsByPrefix.get(parsed.prefix).add(parsed.segment);
+              }
+
+              for (const [prefix, segments] of segmentsByPrefix) {
+                const hasSpecificSegment = [...segments].some((segment) => segment !== "core");
+                if (hasSpecificSegment) {
+                  refined.delete(`${prefix}:core`);
+                }
+              }
+
+              return refined;
+            }
+
             function colorForLabel(label) {
               if (staticLabelColors[label]) return staticLabelColors[label];
               const matchedPrefix = Object.keys(modulePrefixColors).find((prefix) => label.startsWith(prefix));
@@ -369,12 +496,25 @@ jobs:
               }
             }
 
+            const refinedModuleLabels = refineModuleLabels(detectedModuleLabels);
+            const modulePrefixesWithLabels = new Set(
+              [...refinedModuleLabels]
+                .map((label) => parseModuleLabel(label)?.prefix)
+                .filter(Boolean)
+            );
+
             const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
               owner,
               repo,
               issue_number: pr.number,
             });
             const currentLabelNames = currentLabels.map((label) => label.name);
+            const currentPathLabels = currentLabelNames.filter((label) => managedPathLabelSet.has(label));
+
+            const dedupedPathLabels = currentPathLabels.filter((label) => {
+              if (label === "core") return true;
+              return !modulePrefixesWithLabels.has(label);
+            });
 
             const excludedLockfiles = new Set(["Cargo.lock"]);
             const changedLines = files.reduce((total, file) => {
@@ -426,7 +566,7 @@ jobs:
               manualRiskOverrideLabel,
               ...managedPathLabels,
               ...contributorTierLabels,
-              ...detectedModuleLabels,
+              ...refinedModuleLabels,
             ]);
 
             for (const label of labelsToEnsure) {
@@ -454,6 +594,7 @@ jobs:
               if (label === legacyTrustedContributorLabel) return false;
               if (contributorTierLabels.includes(label)) return false;
               if (sizeLabels.includes(label) || computedRiskLabels.includes(label)) return false;
+              if (managedPathLabelSet.has(label)) return false;
               if (managedModulePrefixes.some((prefix) => label.startsWith(prefix))) return false;
               return true;
             });
@@ -461,11 +602,28 @@ jobs:
             const manualRiskSelection =
               currentLabelNames.find((label) => computedRiskLabels.includes(label)) || riskLabel;
 
-            const moduleLabelList = [...detectedModuleLabels];
+            const moduleLabelList = sortModuleLabels([...refinedModuleLabels]);
             const contributorLabelList = contributorTierLabel ? [contributorTierLabel] : [];
-            const nextLabels = hasManualRiskOverride
-              ? [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...contributorLabelList, sizeLabel, manualRiskSelection])]
-              : [...new Set([...keepNonManagedLabels, ...moduleLabelList, ...contributorLabelList, sizeLabel, riskLabel])];
+            const selectedRiskLabels = hasManualRiskOverride
+              ? sortByPriority([manualRiskSelection, manualRiskOverrideLabel], riskPriorityIndex)
+              : sortByPriority([riskLabel], riskPriorityIndex);
+            const selectedSizeLabels = sortByPriority([sizeLabel], sizePriorityIndex);
+            const sortedContributorLabels = sortByPriority(contributorLabelList, contributorPriorityIndex);
+            const sortedPathLabels = sortByPriority(dedupedPathLabels, pathLabelPriorityIndex);
+            const sortedKeepNonManagedLabels = [...new Set(keepNonManagedLabels)].sort((left, right) =>
+              left.localeCompare(right)
+            );
+
+            const nextLabels = [
+              ...new Set([
+                ...selectedRiskLabels,
+                ...selectedSizeLabels,
+                ...sortedContributorLabels,
+                ...moduleLabelList,
+                ...sortedPathLabels,
+                ...sortedKeepNonManagedLabels,
+              ]),
+            ];
 
             await github.rest.issues.setLabels({
               owner,
