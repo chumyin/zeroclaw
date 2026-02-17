@@ -49,8 +49,8 @@ Maintain these branch protection rules on `main`:
 ### Step A: Intake
 
 - Contributor opens PR with full `.github/pull_request_template.md`.
-- `PR Labeler` applies scope/path labels + size labels + risk labels + module labels (for example `channel:telegram`, `provider:kimi`, `tool:shell`) and contributor tiers by merged PR count (`experienced` >=10, `principal` >=20, `distinguished` >=50), while de-duplicating less-specific scope labels when a more specific module label is present.
-- For all module prefixes, module labels are compacted to reduce noise: one specific module keeps `prefix:component`, but multiple specifics collapse to the base scope label `prefix`.
+- `PR Labeler` applies scope/path labels + size labels + risk labels + module labels (for example `channel: telegram`, `provider: kimi`, `tool: shell`) and contributor tiers by merged PR count (`trusted` >=5, `experienced` >=10, `principal` >=20, `distinguished` >=50), while de-duplicating less-specific scope labels when a more specific module label is present.
+- For all module prefixes, module labels are compacted to reduce noise: one specific module keeps `prefix: component`, but multiple specifics collapse to the base scope label `prefix`.
 - Label ordering is priority-first: `risk:*` -> `size:*` -> contributor tier -> module/path labels.
 - Hovering a label in GitHub shows its auto-managed description (rule/threshold summary).
 - Managed label colors are arranged by display order to create a smooth gradient across long label rows.
@@ -243,7 +243,7 @@ Label discipline:
 - Path labels identify subsystem ownership quickly.
 - Size labels drive batching strategy.
 - Risk labels drive review depth (`risk: low/medium/high`).
-- Module labels (`<module>:<component>`) improve reviewer routing for integration-specific changes and future newly-added modules.
+- Module labels (`<module>: <component>`) improve reviewer routing for integration-specific changes and future newly-added modules.
 - `risk: manual` allows maintainers to preserve a human risk judgment when automation lacks context.
 - `no-stale` is reserved for accepted-but-blocked work.
 

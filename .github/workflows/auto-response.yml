@@ -28,18 +28,15 @@ jobs:
             const issue = context.payload.issue;
             const pullRequest = context.payload.pull_request;
             const target = issue ?? pullRequest;
-            const legacyTrustedContributorLabel = "trusted contributor";
             const contributorTierRules = [
               { label: "distinguished contributor", minMergedPRs: 50 },
               { label: "principal contributor", minMergedPRs: 20 },
               { label: "experienced contributor", minMergedPRs: 10 },
+              { label: "trusted contributor", minMergedPRs: 5 },
             ];
             const contributorTierLabels = contributorTierRules.map((rule) => rule.label);
             const contributorTierColor = "39FF14";
-            const managedContributorLabels = new Set([
-              legacyTrustedContributorLabel,
-              ...contributorTierLabels,
-            ]);
+            const managedContributorLabels = new Set(contributorTierLabels);
             const action = context.payload.action;
             const changedLabel = context.payload.label?.name;
 
@@ -104,7 +101,7 @@ jobs:
             });
             const keepLabels = currentLabels
               .map((label) => label.name)
-              .filter((label) => label !== legacyTrustedContributorLabel && !contributorTierLabels.includes(label));
+              .filter((label) => !contributorTierLabels.includes(label));
 
             if (contributorTierLabel) {
               keepLabels.push(contributorTierLabel);
