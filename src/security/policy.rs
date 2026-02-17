@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Instant;
 
 /// How much autonomy the agent has
@@ -40,10 +40,7 @@ impl ActionTracker {
 
     /// Record an action and return the current count within the window.
     pub fn record(&self) -> usize {
-        let mut actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut actions = self.actions.lock();
         let cutoff = Instant::now()
             .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
@@ -54,10 +51,7 @@ impl ActionTracker {
 
     /// Count of actions in the current window without recording.
     pub fn count(&self) -> usize {
-        let mut actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut actions = self.actions.lock();
         let cutoff = Instant::now()
             .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
@@ -68,10 +62,7 @@ impl ActionTracker {
 
 impl Clone for ActionTracker {
     fn clone(&self) -> Self {
-        let actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let actions = self.actions.lock();
         Self {
             actions: Mutex::new(actions.clone()),
         }
@@ -167,6 +158,25 @@ fn skip_env_assignments(s: &str) -> &str {
     }
 }
 
+/// Detect a single `&` operator (background/chain). `&&` is allowed.
+///
+/// We treat any standalone `&` as unsafe in policy validation because it can
+/// chain hidden sub-commands and escape foreground timeout expectations.
+fn contains_single_ampersand(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        if *b != b'&' {
+            continue;
+        }
+        let prev_is_amp = i > 0 && bytes[i - 1] == b'&';
+        let next_is_amp = i + 1 < bytes.len() && bytes[i + 1] == b'&';
+        if !prev_is_amp && !next_is_amp {
+            return true;
+        }
+    }
+    false
+}
+
 impl SecurityPolicy {
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
@@ -174,7 +184,7 @@ impl SecurityPolicy {
         for sep in ["&&", "||"] {
             normalized = normalized.replace(sep, "\x00");
         }
-        for sep in ['\n', ';', '|'] {
+        for sep in ['\n', ';', '|', '&'] {
             normalized = normalized.replace(sep, "\x00");
         }
 
@@ -331,7 +341,9 @@ impl SecurityPolicy {
     /// - Blocks subshell operators (`` ` ``, `$(`) that hide arbitrary execution
     /// - Splits on command separators (`|`, `&&`, `||`, `;`, newlines) and
     ///   validates each sub-command against the allowlist
+    /// - Blocks single `&` background chaining (`&&` remains supported)
     /// - Blocks output redirections (`>`, `>>`) that could write outside workspace
+    /// - Blocks dangerous arguments (e.g. `find -exec`, `git config`)
     pub fn is_command_allowed(&self, command: &str) -> bool {
         if self.autonomy == AutonomyLevel::ReadOnly {
             return false;
@@ -339,12 +351,32 @@ impl SecurityPolicy {
 
         // Block subshell/expansion operators — these allow hiding arbitrary
         // commands inside an allowed command (e.g. `echo $(rm -rf /)`)
-        if command.contains('`') || command.contains("$(") || command.contains("${") {
+        if command.contains('`')
+            || command.contains("$(")
+            || command.contains("${")
+            || command.contains("<(")
+            || command.contains(">(")
+        {
             return false;
         }
 
         // Block output redirections — they can write to arbitrary paths
         if command.contains('>') {
+            return false;
+        }
+
+        // Block `tee` — it can write to arbitrary files, bypassing the
+        // redirect check above (e.g. `echo secret | tee /etc/crontab`)
+        if command
+            .split_whitespace()
+            .any(|w| w == "tee" || w.ends_with("/tee"))
+        {
+            return false;
+        }
+
+        // Block background command chaining (`&`), which can hide extra
+        // sub-commands and outlive timeout expectations. Keep `&&` allowed.
+        if contains_single_ampersand(command) {
             return false;
         }
 
@@ -367,13 +399,9 @@ impl SecurityPolicy {
             // Strip leading env var assignments (e.g. FOO=bar cmd)
             let cmd_part = skip_env_assignments(segment);
 
-            let base_cmd = cmd_part
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .rsplit('/')
-                .next()
-                .unwrap_or("");
+            let mut words = cmd_part.split_whitespace();
+            let base_raw = words.next().unwrap_or("");
+            let base_cmd = base_raw.rsplit('/').next().unwrap_or("");
 
             if base_cmd.is_empty() {
                 continue;
@@ -386,6 +414,12 @@ impl SecurityPolicy {
             {
                 return false;
             }
+
+            // Validate arguments for the command
+            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+            if !self.is_args_safe(base_cmd, &args) {
+                return false;
+            }
         }
 
         // At least one command must be present
@@ -395,6 +429,29 @@ impl SecurityPolicy {
         });
 
         has_cmd
+    }
+
+    /// Check for dangerous arguments that allow sub-command execution.
+    fn is_args_safe(&self, base: &str, args: &[String]) -> bool {
+        let base = base.to_ascii_lowercase();
+        match base.as_str() {
+            "find" => {
+                // find -exec and find -ok allow arbitrary command execution
+                !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+            }
+            "git" => {
+                // git config, alias, and -c can be used to set dangerous options
+                // (e.g. git config core.editor "rm -rf /")
+                !args.iter().any(|arg| {
+                    arg == "config"
+                        || arg.starts_with("config.")
+                        || arg == "alias"
+                        || arg.starts_with("alias.")
+                        || arg == "-c"
+                })
+            }
+            _ => true,
+        }
     }
 
     /// Check if a file path is allowed (no path traversal, within workspace)
@@ -709,6 +766,14 @@ mod tests {
         assert!(result.unwrap_err().contains("high-risk"));
     }
 
+    #[test]
+    fn validate_command_rejects_background_chain_bypass() {
+        let p = default_policy();
+        let result = p.validate_command_execution("ls & python3 -c 'print(1)'", false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not allowed"));
+    }
+
     // ── is_path_allowed ─────────────────────────────────────
 
     #[test]
@@ -943,6 +1008,14 @@ mod tests {
     }
 
     #[test]
+    fn command_injection_background_chain_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("ls & rm -rf /"));
+        assert!(!p.is_command_allowed("ls&rm -rf /"));
+        assert!(!p.is_command_allowed("echo ok & python3 -c 'print(1)'"));
+    }
+
+    #[test]
     fn command_injection_redirect_blocked() {
         let p = default_policy();
         assert!(!p.is_command_allowed("echo secret > /etc/crontab"));
@@ -950,9 +1023,40 @@ mod tests {
     }
 
     #[test]
+    fn command_argument_injection_blocked() {
+        let p = default_policy();
+        // find -exec is a common bypass
+        assert!(!p.is_command_allowed("find . -exec rm -rf {} +"));
+        assert!(!p.is_command_allowed("find / -ok cat {} \\;"));
+        // git config/alias can execute commands
+        assert!(!p.is_command_allowed("git config core.editor \"rm -rf /\""));
+        assert!(!p.is_command_allowed("git alias.st status"));
+        assert!(!p.is_command_allowed("git -c core.editor=calc.exe commit"));
+        // Legitimate commands should still work
+        assert!(p.is_command_allowed("find . -name '*.txt'"));
+        assert!(p.is_command_allowed("git status"));
+        assert!(p.is_command_allowed("git add ."));
+    }
+
+    #[test]
     fn command_injection_dollar_brace_blocked() {
         let p = default_policy();
         assert!(!p.is_command_allowed("echo ${IFS}cat${IFS}/etc/passwd"));
+    }
+
+    #[test]
+    fn command_injection_tee_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("echo secret | tee /etc/crontab"));
+        assert!(!p.is_command_allowed("ls | /usr/bin/tee outfile"));
+        assert!(!p.is_command_allowed("tee file.txt"));
+    }
+
+    #[test]
+    fn command_injection_process_substitution_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("cat <(echo pwned)"));
+        assert!(!p.is_command_allowed("ls >(cat /etc/passwd)"));
     }
 
     #[test]

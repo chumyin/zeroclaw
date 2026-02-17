@@ -11,13 +11,14 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
 </p>
 
 Fast, small, and fully autonomous AI assistant infrastructure — deploy anywhere, swap anything.
 
 ```
-~3.4MB binary · <10ms startup · 1,017 tests · 22+ providers · 8 traits · Pluggable everything
+~3.4MB binary · <10ms startup · 1,017 tests · 23+ providers · 8 traits · Pluggable everything
 ```
 
 ### ✨ Features
@@ -62,6 +63,68 @@ ls -lh target/release/zeroclaw
 /usr/bin/time -l target/release/zeroclaw status
 ```
 
+## Prerequisites
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+#### Required
+
+1. **Visual Studio Build Tools** (provides the MSVC linker and Windows SDK):
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools
+   ```
+   During installation (or via the Visual Studio Installer), select the **"Desktop development with C++"** workload.
+
+2. **Rust toolchain:**
+   ```powershell
+   winget install Rustlang.Rustup
+   ```
+   After installation, open a new terminal and run `rustup default stable` to ensure the stable toolchain is active.
+
+3. **Verify** both are working:
+   ```powershell
+   rustc --version
+   cargo --version
+   ```
+
+#### Optional
+
+- **Docker Desktop** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via `winget install Docker.DockerDesktop`.
+
+</details>
+
+<details>
+<summary><strong>Linux / macOS</strong></summary>
+
+#### Required
+
+1. **Build essentials:**
+   - **Linux (Debian/Ubuntu):** `sudo apt install build-essential pkg-config`
+   - **Linux (Fedora/RHEL):** `sudo dnf groupinstall "Development Tools" && sudo dnf install pkg-config`
+   - **macOS:** Install Xcode Command Line Tools: `xcode-select --install`
+
+2. **Rust toolchain:**
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+   See [rustup.rs](https://rustup.rs) for details.
+
+3. **Verify** both are working:
+   ```bash
+   rustc --version
+   cargo --version
+   ```
+
+#### Optional
+
+- **Docker** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via your package manager or [docker.com](https://docs.docker.com/engine/install/).
+
+> **Note:** The default `cargo build --release` uses `codegen-units=1` for compatibility with low-memory devices (e.g., Raspberry Pi 3 with 1GB RAM). For faster builds on powerful machines, use `cargo build --profile release-fast`.
+
+</details>
+
+
 ## Quick Start
 
 ```bash
@@ -69,6 +132,9 @@ git clone https://github.com/zeroclaw-labs/zeroclaw.git
 cd zeroclaw
 cargo build --release --locked
 cargo install --path . --force --locked
+
+# Ensure ~/.cargo/bin is in your PATH
+export PATH="$HOME/.cargo/bin:$PATH"
 
 # Quick setup (no prompts)
 zeroclaw onboard --api-key sk-... --provider openrouter
@@ -114,7 +180,6 @@ zeroclaw migrate openclaw
 ```
 
 > **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example: `cargo run --release -- status`).
-> **Low-memory boards (e.g., Raspberry Pi 3, 1GB RAM):** run `CARGO_BUILD_JOBS=1 cargo build --release` if the kernel kills rustc during compilation.
 
 ## Architecture
 
@@ -126,7 +191,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 
 | Subsystem | Trait | Ships with | Extend |
 |-----------|-------|------------|--------|
-| **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
+| **AI Models** | `Provider` | 23+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, Astrai, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Lucid bridge (CLI sync + SQLite fallback), Markdown | Any persistence backend |
 | **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), browser (agent-browser / rust-native), composio (optional) | Any capability |
@@ -225,6 +290,21 @@ rerun channel setup only:
 ```bash
 zeroclaw onboard --channels-only
 ```
+
+### Telegram media replies
+
+Telegram routing now replies to the source **chat ID** from incoming updates (instead of usernames),
+which avoids `Bad Request: chat not found` failures.
+
+For non-text replies, ZeroClaw can send Telegram attachments when the assistant includes markers:
+
+- `[IMAGE:<path-or-url>]`
+- `[DOCUMENT:<path-or-url>]`
+- `[VIDEO:<path-or-url>]`
+- `[AUDIO:<path-or-url>]`
+- `[VOICE:<path-or-url>]`
+
+Paths can be local files (for example `/tmp/screenshot.png`) or HTTPS URLs.
 
 ### WhatsApp Business Cloud API Setup
 
@@ -356,6 +436,40 @@ format = "openclaw"             # "openclaw" (default, markdown files) or "aieos
 # aieos_inline = '{"identity":{"names":{"first":"Nova"}}}'  # inline AIEOS JSON
 ```
 
+## Python Companion Package (`zeroclaw-tools`)
+
+For LLM providers with inconsistent native tool calling (e.g., GLM-5/Zhipu), ZeroClaw ships a Python companion package with **LangGraph-based tool calling** for guaranteed consistency:
+
+```bash
+pip install zeroclaw-tools
+```
+
+```python
+from zeroclaw_tools import create_agent, shell, file_read
+from langchain_core.messages import HumanMessage
+
+# Works with any OpenAI-compatible provider
+agent = create_agent(
+    tools=[shell, file_read],
+    model="glm-5",
+    api_key="your-key",
+    base_url="https://api.z.ai/api/coding/paas/v4"
+)
+
+result = await agent.ainvoke({
+    "messages": [HumanMessage(content="List files in /tmp")]
+})
+print(result["messages"][-1].content)
+```
+
+**Why use it:**
+- **Consistent tool calling** across all providers (even those with poor native support)
+- **Automatic tool loop** — keeps calling tools until the task is complete
+- **Easy extensibility** — add custom tools with `@tool` decorator
+- **Discord bot integration** included (Telegram planned)
+
+See [`python/README.md`](python/README.md) for full documentation.
+
 ## Identity System (AIEOS Support)
 
 ZeroClaw supports **identity-agnostic** AI personas through two formats:
@@ -456,8 +570,8 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 
 ```bash
 cargo build              # Dev build
-cargo build --release    # Release build (~3.4MB)
-CARGO_BUILD_JOBS=1 cargo build --release    # Low-memory fallback (Raspberry Pi 3, 1GB RAM)
+cargo build --release    # Release build (codegen-units=1, works on all devices including Raspberry Pi)
+cargo build --profile release-fast    # Faster build (codegen-units=8, requires 16GB+ RAM)
 cargo test               # 1,017 tests
 cargo clippy             # Lint (0 warnings)
 cargo fmt                # Format
@@ -508,9 +622,20 @@ ZeroClaw is an open-source project maintained with passion. If you find it usefu
 
 <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
 
+### 🙏 Special Thanks
+
+A heartfelt thank you to the communities and institutions that inspire and fuel this open-source work:
+
+- **Harvard University** — for fostering intellectual curiosity and pushing the boundaries of what's possible.
+- **MIT** — for championing open knowledge, open source, and the belief that technology should be accessible to everyone.
+- **Sundai Club** — for the community, the energy, and the relentless drive to build things that matter.
+- **The World & Beyond** 🌍✨ — to every contributor, dreamer, and builder out there making open source a force for good. This is for you.
+
+We're building in the open because the best ideas come from everywhere. If you're reading this, you're part of it. Welcome. 🦀❤️
+
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE) and [NOTICE](NOTICE) for contributor attribution
 
 ## Contributing
 
