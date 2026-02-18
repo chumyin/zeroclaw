@@ -133,6 +133,7 @@ pub fn run_wizard() -> Result<Config> {
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
         web_search: crate::config::WebSearchConfig::default(),
+        proxy: crate::config::ProxyConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
@@ -356,6 +357,7 @@ pub fn run_quick_setup(
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
         web_search: crate::config::WebSearchConfig::default(),
+        proxy: crate::config::ProxyConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
@@ -469,6 +471,7 @@ fn canonical_provider_name(provider_name: &str) -> &str {
         "grok" => "xai",
         "together" => "together-ai",
         "google" | "google-gemini" => "gemini",
+        "kimi_coding" | "kimi_for_coding" => "kimi-code",
         _ => provider_name,
     }
 }
@@ -493,6 +496,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "groq" => "llama-3.3-70b-versatile".into(),
         "deepseek" => "deepseek-chat".into(),
         "gemini" => "gemini-2.5-pro".into(),
+        "kimi-code" => "kimi-for-coding".into(),
         _ => "anthropic/claude-sonnet-4.5".into(),
     }
 }
@@ -683,6 +687,16 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             (
                 "command-r-08-2024".to_string(),
                 "Command R (stable fast baseline)".to_string(),
+            ),
+        ],
+        "kimi-code" => vec![
+            (
+                "kimi-for-coding".to_string(),
+                "Kimi for Coding (official coding-agent model)".to_string(),
+            ),
+            (
+                "kimi-k2.5".to_string(),
+                "Kimi K2.5 (general coding endpoint model)".to_string(),
             ),
         ],
         "moonshot" => vec![
@@ -978,6 +992,8 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
                 // Anthropic also accepts OAuth setup-tokens via ANTHROPIC_OAUTH_TOKEN
                 if provider_name == "anthropic" {
                     std::env::var("ANTHROPIC_OAUTH_TOKEN").ok()
+                } else if provider_name == "minimax" {
+                    std::env::var("MINIMAX_OAUTH_TOKEN").ok()
                 } else {
                     None
                 }
@@ -1425,6 +1441,10 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("bedrock", "Amazon Bedrock — AWS managed models"),
         ],
         3 => vec![
+            (
+                "kimi-code",
+                "Kimi Code — coding-optimized Kimi API (KimiCLI)",
+            ),
             ("moonshot", "Moonshot — Kimi API (China endpoint)"),
             (
                 "moonshot-intl",
@@ -1634,7 +1654,9 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             key
         }
     } else {
-        let key_url = if is_moonshot_alias(provider_name) {
+        let key_url = if is_moonshot_alias(provider_name)
+            || canonical_provider_name(provider_name) == "kimi-code"
+        {
             "https://platform.moonshot.cn/console/api-keys"
         } else if is_glm_cn_alias(provider_name) || is_zai_cn_alias(provider_name) {
             "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
@@ -1800,6 +1822,13 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("command-r-plus", "Command R+ (flagship)"),
             ("command-r", "Command R (fast)"),
         ],
+        "kimi-code" => vec![
+            (
+                "kimi-for-coding",
+                "Kimi for Coding (official coding-agent model)",
+            ),
+            ("kimi-k2.5", "Kimi K2.5 (general coding endpoint model)"),
+        ],
         "moonshot" => vec![
             ("moonshot-v1-128k", "Moonshot V1 128K"),
             ("moonshot-v1-32k", "Moonshot V1 32K"),
@@ -1854,7 +1883,11 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
         let has_api_key = !api_key.trim().is_empty()
             || std::env::var(provider_env_var(provider_name))
                 .ok()
-                .is_some_and(|value| !value.trim().is_empty());
+                .is_some_and(|value| !value.trim().is_empty())
+            || (provider_name == "minimax"
+                && std::env::var("MINIMAX_OAUTH_TOKEN")
+                    .ok()
+                    .is_some_and(|value| !value.trim().is_empty()));
 
         if can_fetch_without_key || has_api_key {
             if let Some(cached) =
@@ -2024,6 +2057,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "fireworks" | "fireworks-ai" => "FIREWORKS_API_KEY",
         "perplexity" => "PERPLEXITY_API_KEY",
         "cohere" => "COHERE_API_KEY",
+        "kimi-code" => "KIMI_CODE_API_KEY",
         "moonshot" => "MOONSHOT_API_KEY",
         "glm" => "GLM_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
@@ -4609,6 +4643,7 @@ mod tests {
         assert_eq!(default_model_for_provider("zai-cn"), "glm-5");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-pro");
         assert_eq!(default_model_for_provider("google"), "gemini-2.5-pro");
+        assert_eq!(default_model_for_provider("kimi-code"), "kimi-for-coding");
         assert_eq!(
             default_model_for_provider("google-gemini"),
             "gemini-2.5-pro"
@@ -4621,6 +4656,8 @@ mod tests {
         assert_eq!(canonical_provider_name("dashscope-us"), "qwen");
         assert_eq!(canonical_provider_name("moonshot-intl"), "moonshot");
         assert_eq!(canonical_provider_name("kimi-cn"), "moonshot");
+        assert_eq!(canonical_provider_name("kimi_coding"), "kimi-code");
+        assert_eq!(canonical_provider_name("kimi_for_coding"), "kimi-code");
         assert_eq!(canonical_provider_name("glm-cn"), "glm");
         assert_eq!(canonical_provider_name("bigmodel"), "glm");
         assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
@@ -4647,6 +4684,17 @@ mod tests {
             .collect();
 
         assert!(ids.contains(&"anthropic/claude-sonnet-4.5".to_string()));
+    }
+
+    #[test]
+    fn curated_models_for_kimi_code_include_official_agent_model() {
+        let ids: Vec<String> = curated_models_for_provider("kimi-code")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+
+        assert!(ids.contains(&"kimi-for-coding".to_string()));
+        assert!(ids.contains(&"kimi-k2.5".to_string()));
     }
 
     #[test]
@@ -4856,6 +4904,11 @@ mod tests {
         assert_eq!(provider_env_var("dashscope-us"), "DASHSCOPE_API_KEY");
         assert_eq!(provider_env_var("glm-cn"), "GLM_API_KEY");
         assert_eq!(provider_env_var("minimax-cn"), "MINIMAX_API_KEY");
+        assert_eq!(provider_env_var("kimi-code"), "KIMI_CODE_API_KEY");
+        assert_eq!(provider_env_var("kimi_coding"), "KIMI_CODE_API_KEY");
+        assert_eq!(provider_env_var("kimi_for_coding"), "KIMI_CODE_API_KEY");
+        assert_eq!(provider_env_var("minimax-oauth"), "MINIMAX_API_KEY");
+        assert_eq!(provider_env_var("minimax-oauth-cn"), "MINIMAX_API_KEY");
         assert_eq!(provider_env_var("moonshot-intl"), "MOONSHOT_API_KEY");
         assert_eq!(provider_env_var("zai-cn"), "ZAI_API_KEY");
         assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");

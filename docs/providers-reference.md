@@ -31,11 +31,12 @@ Runtime resolution order is:
 | `vercel` | `vercel-ai` | No | `VERCEL_API_KEY` |
 | `cloudflare` | `cloudflare-ai` | No | `CLOUDFLARE_API_KEY` |
 | `moonshot` | `kimi` | No | `MOONSHOT_API_KEY` |
+| `kimi-code` | `kimi_coding`, `kimi_for_coding` | No | `KIMI_CODE_API_KEY`, `MOONSHOT_API_KEY` |
 | `synthetic` | — | No | `SYNTHETIC_API_KEY` |
 | `opencode` | `opencode-zen` | No | `OPENCODE_API_KEY` |
 | `zai` | `z.ai` | No | `ZAI_API_KEY` |
 | `glm` | `zhipu` | No | `GLM_API_KEY` |
-| `minimax` | — | No | `MINIMAX_API_KEY` |
+| `minimax` | `minimax-intl`, `minimax-io`, `minimax-global`, `minimax-cn`, `minimaxi`, `minimax-oauth`, `minimax-oauth-cn`, `minimax-portal`, `minimax-portal-cn` | No | `MINIMAX_OAUTH_TOKEN`, `MINIMAX_API_KEY` |
 | `bedrock` | `aws-bedrock` | No | (use config/`API_KEY` fallback) |
 | `qianfan` | `baidu` | No | `QIANFAN_API_KEY` |
 | `qwen` | `dashscope`, `qwen-intl`, `dashscope-intl`, `qwen-us`, `dashscope-us` | No | `DASHSCOPE_API_KEY` |
@@ -51,6 +52,13 @@ Runtime resolution order is:
 | `lmstudio` | `lm-studio` | Yes | (optional; local by default) |
 | `nvidia` | `nvidia-nim`, `build.nvidia.com` | No | `NVIDIA_API_KEY` |
 
+### Kimi Code Notes
+
+- Provider ID: `kimi-code`
+- Endpoint: `https://api.kimi.com/coding/v1`
+- Default onboarding model: `kimi-for-coding` (alternative: `kimi-k2.5`)
+- Runtime auto-adds `User-Agent: KimiCLI/0.77` for compatibility.
+
 ## Custom Endpoints
 
 - OpenAI-compatible endpoint:
@@ -64,6 +72,26 @@ default_provider = "custom:https://your-api.example.com"
 ```toml
 default_provider = "anthropic-custom:https://your-api.example.com"
 ```
+
+## MiniMax OAuth Setup (config.toml)
+
+Set the MiniMax provider and OAuth placeholder in config:
+
+```toml
+default_provider = "minimax-oauth"
+api_key = "minimax-oauth"
+```
+
+Then provide one of the following credentials via environment variables:
+
+- `MINIMAX_OAUTH_TOKEN` (preferred, direct access token)
+- `MINIMAX_API_KEY` (legacy/static token)
+- `MINIMAX_OAUTH_REFRESH_TOKEN` (auto-refreshes access token at startup)
+
+Optional:
+
+- `MINIMAX_OAUTH_REGION=global` or `cn` (defaults by provider alias)
+- `MINIMAX_OAUTH_CLIENT_ID` to override the default OAuth client id
 
 ## Model Routing (`hint:<name>`)
 
@@ -86,4 +114,3 @@ Then call with a hint model name (for example from tool or integration paths):
 ```text
 hint:reasoning
 ```
-

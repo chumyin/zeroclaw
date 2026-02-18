@@ -783,7 +783,10 @@ pub fn aieos_to_system_prompt(identity: &AieosIdentity) -> String {
         if let Some(ref matrix) = psych.neural_matrix {
             if !matrix.is_empty() {
                 prompt.push_str("\n**Neural Matrix (Cognitive Weights):**\n");
-                for (trait_name, weight) in matrix {
+                let mut sorted_keys: Vec<_> = matrix.keys().collect();
+                sorted_keys.sort();
+                for trait_name in sorted_keys {
+                    let weight = matrix.get(trait_name).unwrap();
                     let _ = writeln!(prompt, "- {}: {:.2}", trait_name, weight);
                 }
             }
@@ -952,7 +955,10 @@ pub fn aieos_to_system_prompt(identity: &AieosIdentity) -> String {
         if let Some(ref favorites) = interests.favorites {
             if !favorites.is_empty() {
                 prompt.push_str("\n**Favorites:**\n");
-                for (category, value) in favorites {
+                let mut sorted_keys: Vec<_> = favorites.keys().collect();
+                sorted_keys.sort();
+                for category in sorted_keys {
+                    let value = favorites.get(category).unwrap();
                     let _ = writeln!(prompt, "- {}: {}", category, value);
                 }
             }
@@ -1445,5 +1451,38 @@ mod tests {
             Some("Nova")
         );
         assert_eq!(identity.psychology.unwrap().mbti.as_deref(), Some("ENTP"));
+    }
+
+    #[test]
+    fn aieos_to_system_prompt_sorts_hashmap_sections_for_determinism() {
+        let mut neural_matrix = std::collections::HashMap::new();
+        neural_matrix.insert("zeta".to_string(), 0.10);
+        neural_matrix.insert("alpha".to_string(), 0.90);
+
+        let mut favorites = std::collections::HashMap::new();
+        favorites.insert("snack".to_string(), "tea".to_string());
+        favorites.insert("book".to_string(), "rust".to_string());
+
+        let identity = AieosIdentity {
+            psychology: Some(PsychologySection {
+                neural_matrix: Some(neural_matrix),
+                ..Default::default()
+            }),
+            interests: Some(InterestsSection {
+                favorites: Some(favorites),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let prompt = aieos_to_system_prompt(&identity);
+
+        let alpha_pos = prompt.find("- alpha: 0.90").unwrap();
+        let zeta_pos = prompt.find("- zeta: 0.10").unwrap();
+        assert!(alpha_pos < zeta_pos);
+
+        let book_pos = prompt.find("- book: rust").unwrap();
+        let snack_pos = prompt.find("- snack: tea").unwrap();
+        assert!(book_pos < snack_pos);
     }
 }

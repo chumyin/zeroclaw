@@ -8,7 +8,10 @@ use crate::providers::traits::{
 };
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
-use reqwest::Client;
+use reqwest::{
+    header::{HeaderMap, HeaderValue, USER_AGENT},
+    Client,
+};
 use serde::{Deserialize, Serialize};
 
 /// A provider that speaks the OpenAI-compatible chat completions API.
@@ -22,7 +25,7 @@ pub struct OpenAiCompatibleProvider {
     /// When false, do not fall back to /v1/responses on chat completions 404.
     /// GLM/Zhipu does not support the responses API.
     supports_responses_fallback: bool,
-    client: Client,
+    user_agent: Option<String>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -43,18 +46,7 @@ impl OpenAiCompatibleProvider {
         credential: Option<&str>,
         auth_style: AuthStyle,
     ) -> Self {
-        Self {
-            name: name.to_string(),
-            base_url: base_url.trim_end_matches('/').to_string(),
-            credential: credential.map(ToString::to_string),
-            auth_header: auth_style,
-            supports_responses_fallback: true,
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
-        }
+        Self::new_with_options(name, base_url, credential, auth_style, true, None)
     }
 
     /// Same as `new` but skips the /v1/responses fallback on 404.
@@ -65,18 +57,69 @@ impl OpenAiCompatibleProvider {
         credential: Option<&str>,
         auth_style: AuthStyle,
     ) -> Self {
+        Self::new_with_options(name, base_url, credential, auth_style, false, None)
+    }
+
+    /// Create a provider with a custom User-Agent header.
+    ///
+    /// Some providers (for example Kimi Code) require a specific User-Agent
+    /// for request routing and policy enforcement.
+    pub fn new_with_user_agent(
+        name: &str,
+        base_url: &str,
+        credential: Option<&str>,
+        auth_style: AuthStyle,
+        user_agent: &str,
+    ) -> Self {
+        Self::new_with_options(
+            name,
+            base_url,
+            credential,
+            auth_style,
+            true,
+            Some(user_agent),
+        )
+    }
+
+    fn new_with_options(
+        name: &str,
+        base_url: &str,
+        credential: Option<&str>,
+        auth_style: AuthStyle,
+        supports_responses_fallback: bool,
+        user_agent: Option<&str>,
+    ) -> Self {
         Self {
             name: name.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
             credential: credential.map(ToString::to_string),
             auth_header: auth_style,
-            supports_responses_fallback: false,
-            client: Client::builder()
+            supports_responses_fallback,
+            user_agent: user_agent.map(ToString::to_string),
+        }
+    }
+
+    fn http_client(&self) -> Client {
+        if let Some(ua) = self.user_agent.as_deref() {
+            let mut headers = HeaderMap::new();
+            if let Ok(value) = HeaderValue::from_str(ua) {
+                headers.insert(USER_AGENT, value);
+            }
+
+            let builder = Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+                .default_headers(headers);
+            let builder =
+                crate::config::apply_runtime_proxy_to_builder(builder, "provider.compatible");
+
+            return builder.build().unwrap_or_else(|error| {
+                tracing::warn!("Failed to build proxied timeout client with user-agent: {error}");
+                Client::new()
+            });
         }
+
+        crate::config::build_runtime_proxy_client_with_timeouts("provider.compatible", 120, 10)
     }
 
     /// Build the full URL for chat completions, detecting if base_url already includes the path.
@@ -452,6 +495,34 @@ fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
     None
 }
 
+fn compact_sanitized_body_snippet(body: &str) -> String {
+    super::sanitize_api_error(body)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn parse_chat_response_body(provider_name: &str, body: &str) -> anyhow::Result<ApiChatResponse> {
+    serde_json::from_str::<ApiChatResponse>(body).map_err(|error| {
+        let snippet = compact_sanitized_body_snippet(body);
+        anyhow::anyhow!(
+            "{provider_name} API returned an unexpected chat-completions payload: {error}; body={snippet}"
+        )
+    })
+}
+
+fn parse_responses_response_body(
+    provider_name: &str,
+    body: &str,
+) -> anyhow::Result<ResponsesResponse> {
+    serde_json::from_str::<ResponsesResponse>(body).map_err(|error| {
+        let snippet = compact_sanitized_body_snippet(body);
+        anyhow::anyhow!(
+            "{provider_name} Responses API returned an unexpected payload: {error}; body={snippet}"
+        )
+    })
+}
+
 impl OpenAiCompatibleProvider {
     fn apply_auth_header(
         &self,
@@ -485,7 +556,7 @@ impl OpenAiCompatibleProvider {
         let url = self.responses_url();
 
         let response = self
-            .apply_auth_header(self.client.post(&url).json(&request), credential)
+            .apply_auth_header(self.http_client().post(&url).json(&request), credential)
             .send()
             .await?;
 
@@ -494,7 +565,8 @@ impl OpenAiCompatibleProvider {
             anyhow::bail!("{} Responses API error: {error}", self.name);
         }
 
-        let responses: ResponsesResponse = response.json().await?;
+        let body = response.text().await?;
+        let responses = parse_responses_response_body(&self.name, &body)?;
 
         extract_responses_text(responses)
             .ok_or_else(|| anyhow::anyhow!("No response from {} Responses API", self.name))
@@ -549,7 +621,7 @@ impl Provider for OpenAiCompatibleProvider {
         let url = self.chat_completions_url();
 
         let response = self
-            .apply_auth_header(self.client.post(&url).json(&request), credential)
+            .apply_auth_header(self.http_client().post(&url).json(&request), credential)
             .send()
             .await?;
 
@@ -573,7 +645,8 @@ impl Provider for OpenAiCompatibleProvider {
             anyhow::bail!("{} API error ({status}): {sanitized}", self.name);
         }
 
-        let chat_response: ApiChatResponse = response.json().await?;
+        let body = response.text().await?;
+        let chat_response = parse_chat_response_body(&self.name, &body)?;
 
         chat_response
             .choices
@@ -630,7 +703,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         let url = self.chat_completions_url();
         let response = self
-            .apply_auth_header(self.client.post(&url).json(&request), credential)
+            .apply_auth_header(self.http_client().post(&url).json(&request), credential)
             .send()
             .await?;
 
@@ -663,7 +736,8 @@ impl Provider for OpenAiCompatibleProvider {
             return Err(super::api_error(&self.name, response).await);
         }
 
-        let chat_response: ApiChatResponse = response.json().await?;
+        let body = response.text().await?;
+        let chat_response = parse_chat_response_body(&self.name, &body)?;
 
         chat_response
             .choices
@@ -729,7 +803,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         let url = self.chat_completions_url();
         let response = self
-            .apply_auth_header(self.client.post(&url).json(&request), credential)
+            .apply_auth_header(self.http_client().post(&url).json(&request), credential)
             .send()
             .await?;
 
@@ -737,7 +811,8 @@ impl Provider for OpenAiCompatibleProvider {
             return Err(super::api_error(&self.name, response).await);
         }
 
-        let chat_response: ApiChatResponse = response.json().await?;
+        let body = response.text().await?;
+        let chat_response = parse_chat_response_body(&self.name, &body)?;
         let choice = chat_response
             .choices
             .into_iter()
@@ -868,7 +943,7 @@ impl Provider for OpenAiCompatibleProvider {
         };
 
         let url = self.chat_completions_url();
-        let client = self.client.clone();
+        let client = self.http_client();
         let auth_header = self.auth_header.clone();
 
         // Use a channel to bridge the async HTTP response to the stream
@@ -935,7 +1010,7 @@ impl Provider for OpenAiCompatibleProvider {
             // the goal is TLS handshake and HTTP/2 negotiation.
             let url = self.chat_completions_url();
             let _ = self
-                .apply_auth_header(self.client.get(&url), credential)
+                .apply_auth_header(self.http_client().get(&url), credential)
                 .send()
                 .await?;
         }
@@ -1031,6 +1106,30 @@ mod tests {
         let json = r#"{"choices":[]}"#;
         let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
         assert!(resp.choices.is_empty());
+    }
+
+    #[test]
+    fn parse_chat_response_body_reports_sanitized_snippet() {
+        let body = r#"{"choices":"invalid","api_key":"sk-test-secret-value"}"#;
+        let err = parse_chat_response_body("custom", body).expect_err("payload should fail");
+        let msg = err.to_string();
+
+        assert!(msg.contains("custom API returned an unexpected chat-completions payload"));
+        assert!(msg.contains("body="));
+        assert!(msg.contains("[REDACTED]"));
+        assert!(!msg.contains("sk-test-secret-value"));
+    }
+
+    #[test]
+    fn parse_responses_response_body_reports_sanitized_snippet() {
+        let body = r#"{"output_text":123,"api_key":"sk-another-secret"}"#;
+        let err = parse_responses_response_body("custom", body).expect_err("payload should fail");
+        let msg = err.to_string();
+
+        assert!(msg.contains("custom Responses API returned an unexpected payload"));
+        assert!(msg.contains("body="));
+        assert!(msg.contains("[REDACTED]"));
+        assert!(!msg.contains("sk-another-secret"));
     }
 
     #[test]
