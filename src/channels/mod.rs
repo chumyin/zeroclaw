@@ -2296,7 +2296,6 @@ mod tests {
         assert!(!sent_messages[0].contains("mock_price"));
     }
 
-
     #[tokio::test]
     async fn process_channel_message_handles_models_command_without_llm_call() {
         let channel_impl = Arc::new(TelegramRecordingChannel::default());
