@@ -102,6 +102,8 @@ Runtime in-chat commands (Telegram/Discord while channel server is running):
 - `zeroclaw skills install <source>`
 - `zeroclaw skills remove <name>`
 
+`<source>` accepts git remotes (`https://...`, `http://...`, `ssh://...`, and `git@host:owner/repo.git`) or a local filesystem path.
+
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
 
 ### `migrate`
