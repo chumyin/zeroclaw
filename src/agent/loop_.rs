@@ -2491,6 +2491,7 @@ pub(crate) async fn run_tool_call_loop(
             }
 
             // ── Approval hook ────────────────────────────────
+            let mut explicit_approval_granted = false;
             if let Some(mgr) = approval {
                 if mgr.needs_approval(&tool_name) {
                     let request = ApprovalRequest {
@@ -2545,7 +2546,7 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
             if explicit_approval_granted {
-                apply_explicit_approval_argument(&mut execution_arguments);
+                apply_explicit_approval_argument(&mut tool_args);
             }
 
             let signature = tool_call_signature(&tool_name, &tool_args);
@@ -2863,6 +2864,7 @@ pub async fn run(
         auth_profile_override: None,
         zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
         secrets_encrypt: config.secrets.encrypt,
+        provider_api_url: config.api_url.clone(),
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
 
@@ -3317,6 +3319,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         auth_profile_override: None,
         zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
         secrets_encrypt: config.secrets.encrypt,
+        provider_api_url: config.api_url.clone(),
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(

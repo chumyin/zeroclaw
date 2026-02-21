@@ -340,6 +340,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             auth_profile_override: None,
             zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
             secrets_encrypt: config.secrets.encrypt,
+            provider_api_url: config.api_url.clone(),
             reasoning_enabled: config.runtime.reasoning_enabled,
         },
     )?);

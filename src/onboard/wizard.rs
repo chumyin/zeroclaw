@@ -500,7 +500,8 @@ fn persist_preset_selection(
 ) -> Result<PathBuf> {
     let path = workspace_dir.join(PRESET_SELECTION_FILE);
     let payload = serde_json::to_string_pretty(selection)?;
-    fs::write(&path, payload).with_context(|| format!("Failed to write {}", path.display()))?;
+    std::fs::write(&path, payload)
+        .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(path)
 }
 
@@ -756,6 +757,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     print_step(9, 9, "Workspace Files");
     scaffold_workspace(&workspace_dir, &project_ctx).await?;
+    let preset_file = persist_preset_selection(&workspace_dir, &preset_selection)?;
 
     // ── Build config ──
     // Defaults: SQLite memory, strict autonomy profile (unless user relaxes), workspace-scoped runtime
@@ -1126,7 +1128,7 @@ async fn run_quick_setup_with_home(
     let memory_backend_name = memory_backend
         .unwrap_or(default_memory_backend_key())
         .to_string();
-    let mut preset_selection = build_preset_selection(preset.unwrap_or("default"), extra_pack_ids)?;
+    let mut preset_selection = build_preset_selection("default", Vec::new())?;
     let risky = risky_pack_ids(&preset_selection);
     if !risky.is_empty() {
         let risky_set: BTreeSet<String> = risky.iter().cloned().collect();
@@ -1142,11 +1144,7 @@ async fn run_quick_setup_with_home(
         );
     }
 
-    let autonomy_config = if let Some(profile_id) = security_profile {
-        autonomy_config_for_security_profile_id(profile_id)?
-    } else {
-        autonomy_config_for_security_profile(SecurityProfile::Strict)
-    };
+    let autonomy_config = autonomy_config_for_security_profile(SecurityProfile::Strict);
 
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
@@ -1209,6 +1207,7 @@ async fn run_quick_setup_with_home(
                 .into(),
     };
     scaffold_workspace(&workspace_dir, &default_ctx).await?;
+    let preset_file = persist_preset_selection(&workspace_dir, &preset_selection)?;
 
     println!(
         "  {} Workspace:  {}",

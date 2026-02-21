@@ -674,6 +674,7 @@ pub struct ProviderRuntimeOptions {
     pub auth_profile_override: Option<String>,
     pub zeroclaw_dir: Option<PathBuf>,
     pub secrets_encrypt: bool,
+    pub provider_api_url: Option<String>,
     pub reasoning_enabled: Option<bool>,
 }
 
@@ -683,6 +684,7 @@ impl Default for ProviderRuntimeOptions {
             auth_profile_override: None,
             zeroclaw_dir: None,
             secrets_encrypt: true,
+            provider_api_url: None,
             reasoning_enabled: None,
         }
     }
