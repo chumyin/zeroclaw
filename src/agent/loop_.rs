@@ -85,6 +85,153 @@ pub(crate) fn scrub_credentials(input: &str) -> String {
         .to_string()
 }
 
+fn strip_untrusted_approval_argument(arguments: &mut serde_json::Value) {
+    if let serde_json::Value::Object(map) = arguments {
+        map.remove("approved");
+    }
+}
+
+fn apply_explicit_approval_argument(arguments: &mut serde_json::Value) {
+    if let serde_json::Value::Object(map) = arguments {
+        map.insert("approved".to_string(), serde_json::Value::Bool(true));
+    }
+}
+
+fn is_security_restriction_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    [
+        "security policy",
+        "read-only mode",
+        "read-only",
+        "requires explicit approval",
+        "high-risk command",
+        "higher autonomy level",
+        "path not allowed by security policy",
+        "rate limit exceeded",
+        "action budget exhausted",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn infer_security_risk_level(reason: &str) -> &'static str {
+    let normalized = reason.to_ascii_lowercase();
+    if normalized.contains("high-risk")
+        || normalized.contains("read-only mode")
+        || normalized.contains("higher autonomy")
+    {
+        "high"
+    } else if normalized.contains("requires explicit approval")
+        || normalized.contains("security policy")
+        || normalized.contains("path not allowed")
+    {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+fn requires_typed_confirmation(reason: &str) -> bool {
+    infer_security_risk_level(reason) == "high"
+}
+
+fn build_security_restriction_metadata(
+    tool_name: &str,
+    reason: &str,
+    channel: Option<&str>,
+) -> serde_json::Value {
+    let risk_level = infer_security_risk_level(reason);
+    serde_json::json!({
+        "schema_version": 1,
+        "blocked": true,
+        "tool": tool_name,
+        "channel": channel,
+        "reason": reason,
+        "risk_level": risk_level,
+        "requires_typed_confirmation": requires_typed_confirmation(reason),
+        "recommended_commands": {
+            "inspect": "zeroclaw security show",
+            "recommend": "zeroclaw security profile recommend \"<your intent>\"",
+            "balanced": "zeroclaw security profile set balanced --yes-risk",
+            "flexible": "zeroclaw security profile set flexible --yes-risk",
+            "full": "zeroclaw security profile set full --yes-risk",
+            "rollback": "zeroclaw security profile set strict"
+        },
+        "levels": [
+            {"id":"L0", "description":"keep current policy and ask for safer alternative", "risk":"low"},
+            {"id":"L1", "description":"one-time explicit approval in trusted interactive context", "risk":"medium"},
+            {"id":"L2", "description":"balanced profile", "risk":"medium"},
+            {"id":"L3", "description":"flexible profile", "risk":"medium_high"},
+            {"id":"L4", "description":"full autonomy profile", "risk":"high"}
+        ]
+    })
+}
+
+fn security_restriction_guidance(tool_name: &str, reason: &str) -> String {
+    let risk_level = infer_security_risk_level(reason);
+    let typed_confirmation = requires_typed_confirmation(reason);
+    let mut lines = vec![
+        "Security guardrail blocked this operation.".to_string(),
+        format!("Reason: {reason}"),
+        format!(
+            "Metadata: risk_level={risk_level}, requires_typed_confirmation={typed_confirmation}"
+        ),
+        "Guardrail levels (choose the minimum needed):".to_string(),
+        "L0 (recommended): keep current policy and ask for a safer alternative.".to_string(),
+    ];
+
+    if tool_name == "shell" && reason.contains("requires explicit approval") {
+        lines.push(
+            "L1: one-time shell approval in supervised mode (ask the agent to retry this shell call with `approved=true`).".to_string(),
+        );
+    } else {
+        lines.push(
+            "L1: keep current policy and adjust workflow to stay within allowlist/workspace scope."
+                .to_string(),
+        );
+    }
+
+    lines.extend([
+        "L2: `zeroclaw security profile set balanced --yes-risk`".to_string(),
+        "L3: `zeroclaw security profile set flexible --yes-risk`".to_string(),
+        "L4 (highest risk): `zeroclaw security profile set full --yes-risk`".to_string(),
+        "Inspect before changing: `zeroclaw security show`".to_string(),
+        "Intent-aware recommendation: `zeroclaw security profile recommend \"<your intent>\"`"
+            .to_string(),
+        "Risk warning: relaxing guardrails can allow wider filesystem/network side effects and destructive operations. Review carefully before enabling."
+            .to_string(),
+        "Rollback to safest defaults: `zeroclaw security profile set strict`".to_string(),
+    ]);
+
+    lines.join("\n")
+}
+
+fn augment_security_restriction_output(tool_name: &str, raw_output: &str) -> String {
+    if !is_security_restriction_error(raw_output) {
+        return raw_output.to_string();
+    }
+    let metadata = build_security_restriction_metadata(tool_name, raw_output, None);
+    let metadata_text = serde_json::to_string_pretty(&metadata)
+        .unwrap_or_else(|_| "{\"schema_version\":1,\"blocked\":true}".to_string());
+    format!(
+        "{raw_output}\n\n[Security Remediation]\n{}\n\n[Security Remediation Metadata]\n{}",
+        security_restriction_guidance(tool_name, raw_output),
+        metadata_text
+    )
+}
+
+fn build_non_cli_approval_denied_message(tool_name: &str, channel_name: &str) -> String {
+    let reason = format!(
+        "Tool requires explicit approval, but channel '{channel_name}' has non-CLI auto-approval disabled."
+    );
+    let mut message = augment_security_restriction_output(tool_name, &reason);
+    message.push_str("\n\n[Channel Approval]");
+    message.push_str(
+        "\nUse CLI for per-call approval prompts, or (higher risk) set `[autonomy] allow_non_cli_auto_approval = true` in config.toml.",
+    );
+    message
+}
+
 /// Default trigger for auto-compaction when non-system message count exceeds this threshold.
 /// Prefer passing the config-driven value via `run_tool_call_loop`; this constant is only
 /// used when callers omit the parameter.
@@ -2351,11 +2498,14 @@ pub(crate) async fn run_tool_call_loop(
                         arguments: tool_args.clone(),
                     };
 
-                    // Only prompt interactively on CLI; auto-approve on other channels.
+                    // Only prompt interactively on CLI.
+                    // Non-CLI channels follow `allow_non_cli_auto_approval`.
                     let decision = if channel_name == "cli" {
                         mgr.prompt_cli(&request)
-                    } else {
+                    } else if mgr.allow_non_cli_auto_approval() {
                         ApprovalResponse::Yes
+                    } else {
+                        ApprovalResponse::No
                     };
 
                     mgr.record_decision(&tool_name, &tool_args, decision, channel_name);
@@ -2388,7 +2538,14 @@ pub(crate) async fn run_tool_call_loop(
                         ));
                         continue;
                     }
+                    explicit_approval_granted = true;
+                } else {
+                    // Approved by policy/session allowlist.
+                    explicit_approval_granted = true;
                 }
+            }
+            if explicit_approval_granted {
+                apply_explicit_approval_argument(&mut execution_arguments);
             }
 
             let signature = tool_call_signature(&tool_name, &tool_args);
@@ -2601,6 +2758,7 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
     instructions.push_str("After tool execution, results appear in <tool_result> tags. ");
     instructions
         .push_str("Continue reasoning with the results until you can give a final answer.\n\n");
+    instructions.push_str("If a tool result reports a security guardrail block, do NOT invent bypasses. Explain the block, provide least-privilege options first, and include risk warnings before suggesting policy relaxation.\n\n");
     instructions.push_str("### Available Tools\n\n");
 
     for tool in tools_registry {
@@ -3314,6 +3472,43 @@ mod tests {
         let scrubbed = scrub_credentials(input);
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
+    }
+
+    #[test]
+    fn approval_argument_must_be_explicitly_managed() {
+        let mut args = serde_json::json!({"command":"touch file.txt", "approved": true});
+        strip_untrusted_approval_argument(&mut args);
+        assert!(args.get("approved").is_none());
+
+        apply_explicit_approval_argument(&mut args);
+        assert_eq!(args.get("approved"), Some(&serde_json::Value::Bool(true)));
+    }
+
+    #[test]
+    fn security_restriction_output_includes_remediation_plan() {
+        let raw = "Command requires explicit approval (approved=true): medium-risk operation";
+        let annotated = augment_security_restriction_output("shell", raw);
+        assert!(annotated.contains("Security guardrail blocked this operation."));
+        assert!(annotated.contains("L0 (recommended)"));
+        assert!(annotated.contains("\"risk_level\": \"medium\""));
+        assert!(annotated.contains("\"requires_typed_confirmation\": false"));
+        assert!(annotated.contains("zeroclaw security show"));
+        assert!(annotated.contains("zeroclaw security profile set full --yes-risk"));
+    }
+
+    #[test]
+    fn non_security_errors_are_not_rewritten() {
+        let raw = "Failed to execute command: No such file or directory";
+        let annotated = augment_security_restriction_output("shell", raw);
+        assert_eq!(annotated, raw);
+    }
+
+    #[test]
+    fn non_cli_approval_denial_includes_channel_guidance() {
+        let denied = build_non_cli_approval_denied_message("shell", "telegram");
+        assert!(denied.contains("channel 'telegram'"));
+        assert!(denied.contains("allow_non_cli_auto_approval = true"));
+        assert!(denied.contains("[Security Remediation Metadata]"));
     }
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;

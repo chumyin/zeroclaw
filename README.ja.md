@@ -275,6 +275,20 @@ require_pairing = true
 allow_public_bind = false
 ```
 
+## OpenAI Codex OAuth + カスタムバックエンドプロキシ
+
+```toml
+# ~/.zeroclaw/config.toml
+default_provider = "openai-codex"
+default_model = "gpt-5-codex"
+api_url = "https://your-proxy.example.com/v1" # runtime は /v1/responses を送信
+```
+
+任意の環境変数オーバーライド:
+
+- `ZEROCLAW_CODEX_BASE_URL`（base URL。`/responses` は自動付与）
+- `ZEROCLAW_CODEX_RESPONSES_URL`（完全な endpoint URL）
+
 ## ドキュメント入口
 
 - ドキュメントハブ（英語）: [`docs/README.md`](docs/README.md)

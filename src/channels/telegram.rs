@@ -5,6 +5,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use directories::UserDirs;
 use parking_lot::Mutex;
+use rand::Rng;
 use reqwest::multipart::{Form, Part};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -34,6 +35,36 @@ enum IncomingAttachmentKind {
     Photo,
 }
 const TELEGRAM_BIND_COMMAND: &str = "/bind";
+const TELEGRAM_ACK_REACTIONS: [&str; 7] = ["⚡️", "🦀", "🙌", "💪", "👌", "👀", "👣"];
+
+fn random_telegram_ack_reaction() -> &'static str {
+    let idx = rand::rng().random_range(0..TELEGRAM_ACK_REACTIONS.len());
+    TELEGRAM_ACK_REACTIONS[idx]
+}
+
+fn reaction_target_from_update(update: &serde_json::Value) -> Option<(i64, i64)> {
+    let message = update.get("message")?;
+    let chat_id = message
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(serde_json::Value::as_i64)?;
+    let message_id = message
+        .get("message_id")
+        .and_then(serde_json::Value::as_i64)?;
+    Some((chat_id, message_id))
+}
+
+fn build_reaction_body(chat_id: i64, message_id: i64, emoji: &str) -> serde_json::Value {
+    serde_json::json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{
+            "type": "emoji",
+            "emoji": emoji,
+        }],
+        "is_big": false,
+    })
+}
 
 /// Split a message into chunks that respect Telegram's 4096 character limit.
 /// Tries to split at word boundaries when possible, and handles continuation.
@@ -2477,6 +2508,63 @@ mod tests {
     fn telegram_channel_name() {
         let ch = TelegramChannel::new("fake-token".into(), vec!["*".into()], false);
         assert_eq!(ch.name(), "telegram");
+    }
+
+    #[test]
+    fn random_telegram_ack_reaction_is_from_pool() {
+        for _ in 0..256 {
+            let reaction = random_telegram_ack_reaction();
+            assert!(TELEGRAM_ACK_REACTIONS.contains(&reaction));
+        }
+    }
+
+    #[test]
+    fn reaction_target_from_update_extracts_chat_and_message_id() {
+        let update = serde_json::json!({
+            "message": {
+                "chat": { "id": 12345 },
+                "message_id": 67890
+            }
+        });
+        assert_eq!(reaction_target_from_update(&update), Some((12345, 67890)));
+    }
+
+    #[test]
+    fn reaction_target_from_update_rejects_incomplete_payload() {
+        let no_message = serde_json::json!({});
+        let no_chat = serde_json::json!({ "message": { "message_id": 1 } });
+        let no_message_id = serde_json::json!({ "message": { "chat": { "id": 1 } } });
+
+        assert_eq!(reaction_target_from_update(&no_message), None);
+        assert_eq!(reaction_target_from_update(&no_chat), None);
+        assert_eq!(reaction_target_from_update(&no_message_id), None);
+    }
+
+    #[test]
+    fn build_reaction_body_matches_telegram_api_shape() {
+        let body = build_reaction_body(123, 456, "⚡️");
+        assert_eq!(
+            body.get("chat_id").and_then(serde_json::Value::as_i64),
+            Some(123)
+        );
+        assert_eq!(
+            body.get("message_id").and_then(serde_json::Value::as_i64),
+            Some(456)
+        );
+        assert_eq!(
+            body.pointer("/reaction/0/type")
+                .and_then(serde_json::Value::as_str),
+            Some("emoji")
+        );
+        assert_eq!(
+            body.pointer("/reaction/0/emoji")
+                .and_then(serde_json::Value::as_str),
+            Some("⚡️")
+        );
+        assert_eq!(
+            body.get("is_big").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use super::traits::{Channel, ChannelMessage, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -198,11 +199,187 @@ fn ensure_lark_send_success(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LarkReactionLocale {
+    ZhCn,
+    ZhTw,
+    En,
+    Ja,
+}
+
+#[derive(Debug, Clone)]
+struct LarkInboundEvent {
+    channel_message: ChannelMessage,
+    message_id: Option<String>,
+    reaction_locale: LarkReactionLocale,
+}
+
+fn normalize_locale_tag(value: &str) -> String {
+    value.trim().replace('_', "-").to_ascii_lowercase()
+}
+
+fn map_locale_tag_to_supported(raw: &str) -> Option<LarkReactionLocale> {
+    let normalized = normalize_locale_tag(raw);
+    if normalized.starts_with("zh-cn")
+        || normalized.starts_with("zh-sg")
+        || normalized.starts_with("zh-hans")
+    {
+        Some(LarkReactionLocale::ZhCn)
+    } else if normalized.starts_with("zh-tw")
+        || normalized.starts_with("zh-hk")
+        || normalized.starts_with("zh-mo")
+        || normalized.starts_with("zh-hant")
+    {
+        Some(LarkReactionLocale::ZhTw)
+    } else if normalized.starts_with("ja") {
+        Some(LarkReactionLocale::Ja)
+    } else if normalized.starts_with("en") {
+        Some(LarkReactionLocale::En)
+    } else {
+        None
+    }
+}
+
+fn locale_from_explicit_payload_signal(payload: &serde_json::Value) -> Option<LarkReactionLocale> {
+    const PRIORITY_POINTERS: [&str; 15] = [
+        "/locale",
+        "/lang",
+        "/language",
+        "/header/locale",
+        "/header/lang",
+        "/header/language",
+        "/event/locale",
+        "/event/lang",
+        "/event/language",
+        "/event/sender/locale",
+        "/event/sender/lang",
+        "/event/sender/language",
+        "/event/sender/sender_i18n_locale",
+        "/event/message/locale",
+        "/event/message/lang",
+    ];
+
+    for pointer in PRIORITY_POINTERS {
+        if let Some(raw) = payload.pointer(pointer).and_then(serde_json::Value::as_str) {
+            return map_locale_tag_to_supported(raw);
+        }
+    }
+
+    find_locale_in_payload(payload)
+}
+
+fn find_locale_in_payload(payload: &serde_json::Value) -> Option<LarkReactionLocale> {
+    match payload {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                let key = key.to_ascii_lowercase();
+                let locale_key = matches!(
+                    key.as_str(),
+                    "locale"
+                        | "lang"
+                        | "language"
+                        | "i18n_locale"
+                        | "user_locale"
+                        | "accept_language"
+                );
+                if locale_key {
+                    if let Some(raw) = value.as_str() {
+                        return map_locale_tag_to_supported(raw);
+                    }
+                }
+            }
+            for value in map.values() {
+                if let Some(locale) = find_locale_in_payload(value) {
+                    return Some(locale);
+                }
+            }
+            None
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Some(locale) = find_locale_in_payload(item) {
+                    return Some(locale);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn infer_locale_from_text(text: &str) -> LarkReactionLocale {
+    let mut has_han = false;
+    let mut traditional_hints = 0;
+    let mut simplified_hints = 0;
+
+    for ch in text.chars() {
+        let code = ch as u32;
+        let is_hiragana = (0x3040..=0x309F).contains(&code);
+        let is_katakana = (0x30A0..=0x30FF).contains(&code);
+        if is_hiragana || is_katakana {
+            return LarkReactionLocale::Ja;
+        }
+
+        if (0x4E00..=0x9FFF).contains(&code) {
+            has_han = true;
+            if "這個為來會對時與說讓歡謝幫體請裡點們沒給很嗎應還學麼".contains(ch)
+            {
+                traditional_hints += 1;
+            }
+            if "这个为来会对时与说让欢谢帮体请里点们没给很吗应还学么".contains(ch)
+            {
+                simplified_hints += 1;
+            }
+        }
+    }
+
+    if has_han {
+        if traditional_hints > simplified_hints {
+            LarkReactionLocale::ZhTw
+        } else {
+            LarkReactionLocale::ZhCn
+        }
+    } else {
+        LarkReactionLocale::En
+    }
+}
+
+fn detect_lark_reaction_locale(
+    payload: Option<&serde_json::Value>,
+    message_text: &str,
+) -> LarkReactionLocale {
+    if let Some(payload) = payload {
+        if let Some(locale) = locale_from_explicit_payload_signal(payload) {
+            return locale;
+        }
+    }
+    infer_locale_from_text(message_text)
+}
+
+fn reaction_pool_for_locale(locale: LarkReactionLocale) -> &'static [&'static str] {
+    match locale {
+        LarkReactionLocale::ZhCn => &LARK_ACK_REACTIONS_ZH_CN,
+        LarkReactionLocale::ZhTw => &LARK_ACK_REACTIONS_ZH_TW,
+        LarkReactionLocale::En => &LARK_ACK_REACTIONS_EN,
+        LarkReactionLocale::Ja => &LARK_ACK_REACTIONS_JA,
+    }
+}
+
+fn random_reaction_from_pool(pool: &[&'static str]) -> &'static str {
+    let idx = rand::rng().random_range(0..pool.len());
+    pool[idx]
+}
+
+fn random_lark_ack_reaction(locale: LarkReactionLocale) -> &'static str {
+    random_reaction_from_pool(reaction_pool_for_locale(locale))
+}
+
 /// Lark/Feishu channel.
 ///
 /// Supports two receive modes (configured via `receive_mode` in config):
 /// - **`websocket`** (default): persistent WSS long-connection; no public URL needed.
 /// - **`webhook`**: HTTP callback server; requires a public HTTPS endpoint.
+#[derive(Clone)]
 pub struct LarkChannel {
     app_id: String,
     app_secret: String,
@@ -565,13 +742,15 @@ impl LarkChannel {
 
                     if msg_type != "event" { continue; }
 
+                    let raw_event_payload = serde_json::from_slice::<serde_json::Value>(&payload).ok();
                     let event: LarkEvent = match serde_json::from_slice(&payload) {
                         Ok(e) => e,
                         Err(e) => { tracing::error!("Lark: event JSON: {e}"); continue; }
                     };
                     if event.header.event_type != "im.message.receive_v1" { continue; }
+                    let event_payload = event.event;
 
-                    let recv: MsgReceivePayload = match serde_json::from_value(event.event) {
+                    let recv: MsgReceivePayload = match serde_json::from_value(event_payload.clone()) {
                         Ok(r) => r,
                         Err(e) => { tracing::error!("Lark: payload parse: {e}"); continue; }
                     };
@@ -622,6 +801,8 @@ impl LarkChannel {
                     let text = strip_at_placeholders(&text);
                     let text = text.trim().to_string();
                     if text.is_empty() { continue; }
+                    let reaction_locale =
+                        detect_lark_reaction_locale(raw_event_payload.as_ref(), &text);
 
                     // Group-chat: only respond when explicitly @-mentioned
                     if lark_msg.chat_type == "group" && !should_respond_in_group(&lark_msg.mentions) {
@@ -642,6 +823,8 @@ impl LarkChannel {
                             .as_secs(),
                         thread_ts: None,
                     };
+
+                    self.spawn_inbound_ack_reaction(Some(lark_msg.message_id.clone()), reaction_locale);
 
                     tracing::debug!("Lark WS: message in {}", lark_msg.chat_id);
                     if tx.send(channel_msg).await.is_err() { break; }
@@ -828,6 +1011,11 @@ impl LarkChannel {
             .pointer("/message/chat_id")
             .and_then(|c| c.as_str())
             .unwrap_or(open_id);
+        let message_id = event
+            .pointer("/message/message_id")
+            .and_then(|m| m.as_str())
+            .map(ToString::to_string);
+        let reaction_locale = detect_lark_reaction_locale(Some(payload), &text);
 
         messages.push(ChannelMessage {
             id: Uuid::new_v4().to_string(),
@@ -840,6 +1028,14 @@ impl LarkChannel {
         });
 
         messages
+    }
+
+    /// Parse an event callback payload and extract text messages
+    pub fn parse_event_payload(&self, payload: &serde_json::Value) -> Vec<ChannelMessage> {
+        self.parse_event_payload_with_reaction(payload)
+            .into_iter()
+            .map(|msg| msg.channel_message)
+            .collect()
     }
 }
 
@@ -947,7 +1143,10 @@ impl LarkChannel {
             }
 
             for msg in messages {
-                if state.tx.send(msg).await.is_err() {
+                state
+                    .channel
+                    .spawn_inbound_ack_reaction(msg.message_id.clone(), msg.reaction_locale);
+                if state.tx.send(msg.channel_message).await.is_err() {
                     tracing::warn!("Lark: message channel closed");
                     break;
                 }
@@ -962,13 +1161,9 @@ impl LarkChannel {
 
         let state = AppState {
             verification_token: self.verification_token.clone(),
-            channel: Arc::new(LarkChannel::new(
-                self.app_id.clone(),
-                self.app_secret.clone(),
-                self.verification_token.clone(),
-                None,
-                self.allowed_users.clone(),
-            )),
+            // Reuse the current channel config so webhook reactions honor
+            // `use_feishu` and cached token behavior.
+            channel: Arc::new(self.clone()),
             tx,
         };
 
@@ -1253,6 +1448,37 @@ mod tests {
         assert_eq!(msgs[0].sender, "oc_chat123");
         assert_eq!(msgs[0].channel, "lark");
         assert_eq!(msgs[0].timestamp, 1_699_999_999);
+    }
+
+    #[test]
+    fn lark_parse_valid_text_message_unsupported_locale_uses_text_inference_for_reaction() {
+        let ch = make_channel();
+        let payload = serde_json::json!({
+            "header": {
+                "event_type": "im.message.receive_v1",
+                "locale": "fr-FR"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_testuser123"
+                    }
+                },
+                "message": {
+                    "message_id": "om_msg_react_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"这个功能很强\"}",
+                    "chat_id": "oc_chat123",
+                    "create_time": "1699999999000"
+                }
+            }
+        });
+
+        let msgs = ch.parse_event_payload_with_reaction(&payload);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].reaction_locale, LarkReactionLocale::ZhCn);
+        assert_eq!(msgs[0].message_id.as_deref(), Some("om_msg_react_1"));
+        assert_eq!(msgs[0].channel_message.content, "这个功能很强");
     }
 
     #[test]

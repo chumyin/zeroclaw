@@ -2,7 +2,7 @@
 
 This file is the canonical table of contents for the documentation system.
 
-Last refreshed: **February 18, 2026**.
+Last refreshed: **February 21, 2026**.
 
 ## Language Entry
 
@@ -32,6 +32,8 @@ Last refreshed: **February 18, 2026**.
 
 - [reference/README.md](reference/README.md)
 - [commands-reference.md](commands-reference.md)
+- [presets-guide.md](presets-guide.md)
+- [preset-recommendation-matrix.md](preset-recommendation-matrix.md)
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
 - [nextcloud-talk-setup.md](nextcloud-talk-setup.md)

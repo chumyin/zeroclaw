@@ -285,8 +285,38 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Quick setup (no prompts, optional model specification)
 zeroclaw onboard --api-key sk-... --provider openrouter [--model "openrouter/auto"]
 
+# Quick setup with a non-strict security profile (explicit consent required)
+zeroclaw onboard --security-profile flexible --yes-security-risk
+
+# Inspect and tune policy after onboarding
+zeroclaw security show
+zeroclaw security profile recommend "need unattended browser automation"
+zeroclaw security profile recommend "hardened deployment" --from-preset hardened-linux --remove-pack tools-update
+zeroclaw security profile set balanced --dry-run --json
+zeroclaw security profile set strict --non-cli-approval manual
+# Higher risk: allows non-CLI channels to auto-approve approval-gated tool calls
+zeroclaw security profile set strict --non-cli-approval auto --yes-risk
+zeroclaw security profile set strict
+
+# Quick setup with official preset + extra packs
+zeroclaw onboard --preset automation --pack rag-pdf
+
+# Post-onboard: plan composition from natural-language intent
+zeroclaw preset intent "need browser automation but no update" --dry-run
+zeroclaw preset intent "need unattended browser automation" --json
+zeroclaw preset intent "need unattended browser automation" --emit-shell ./scripts/preset-plan.sh
+
+# Apply + optional rebuild (explicit confirmations required)
+zeroclaw preset intent "need embedded debug with datasheets" --apply --yes-risky --rebuild --yes-rebuild
+
 # Or interactive wizard
 zeroclaw onboard --interactive
+# Interactive flow includes security profile selection
+# (default: Strict supervised; weaker profiles require explicit risk acknowledgment)
+# After preset/pack selection, onboarding also proposes a preset-aware security profile adjustment.
+# The wizard keeps the default view concise and can expand detailed rationale on demand.
+# If tool execution is blocked by security policy, agent responses now include
+# graded remediation options (L0-L4) and explicit risk warnings before policy relaxation.
 
 # If config.toml already exists and you intentionally want to overwrite it
 zeroclaw onboard --force
@@ -388,6 +418,20 @@ zeroclaw agent --provider openai-codex --auth-profile openai-codex:work -m "hell
 # ANTHROPIC_AUTH_TOKEN, ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY
 zeroclaw agent --provider anthropic -m "hello"
 ```
+
+OpenAI Codex OAuth + custom backend proxy:
+
+```toml
+# ~/.zeroclaw/config.toml
+default_provider = "openai-codex"
+default_model = "gpt-5-codex"
+api_url = "https://your-proxy.example.com/v1" # runtime sends /v1/responses
+```
+
+Optional env overrides:
+
+- `ZEROCLAW_CODEX_BASE_URL` (base URL, `/responses` auto-appended)
+- `ZEROCLAW_CODEX_RESPONSES_URL` (full endpoint URL)
 
 ## Architecture
 
@@ -956,6 +1000,8 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `status` | Show full system status |
 | `cron` | Manage scheduled tasks (`list/add/add-at/add-every/once/remove/update/pause/resume`) |
 | `models` | Refresh provider model catalogs (`models refresh`) |
+| `preset` | Manage preset composition/import/export/intent planning |
+| `security` | Inspect/change security profile (`show`, `profile set`) |
 | `providers` | List supported providers and aliases |
 | `channel` | List/start/doctor channels and bind Telegram identities |
 | `integrations` | Inspect integration setup details |
@@ -1051,6 +1097,8 @@ Start from the docs hub for a task-based map:
 - Documentation hub: [`docs/README.md`](docs/README.md)
 - Unified docs TOC: [`docs/SUMMARY.md`](docs/SUMMARY.md)
 - Commands reference: [`docs/commands-reference.md`](docs/commands-reference.md)
+- Presets guide: [`docs/presets-guide.md`](docs/presets-guide.md)
+- Preset recommendation matrix: [`docs/preset-recommendation-matrix.md`](docs/preset-recommendation-matrix.md)
 - Config reference: [`docs/config-reference.md`](docs/config-reference.md)
 - Providers reference: [`docs/providers-reference.md`](docs/providers-reference.md)
 - Channels reference: [`docs/channels-reference.md`](docs/channels-reference.md)

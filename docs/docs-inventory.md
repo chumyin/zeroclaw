@@ -2,7 +2,7 @@
 
 This inventory classifies docs by intent so readers can quickly distinguish runtime-contract guides from design proposals.
 
-Last reviewed: **February 18, 2026**.
+Last reviewed: **February 21, 2026**.
 
 ## Classification Legend
 
@@ -45,6 +45,8 @@ Last reviewed: **February 18, 2026**.
 |---|---|---|
 | `docs/one-click-bootstrap.md` | Current Guide | users/operators |
 | `docs/commands-reference.md` | Current Reference | users/operators |
+| `docs/presets-guide.md` | Current Guide | users/operators/contributors |
+| `docs/preset-recommendation-matrix.md` | Current Guide | users/operators |
 | `docs/providers-reference.md` | Current Reference | users/operators |
 | `docs/channels-reference.md` | Current Reference | users/operators |
 | `docs/nextcloud-talk-setup.md` | Current Guide | operators |
