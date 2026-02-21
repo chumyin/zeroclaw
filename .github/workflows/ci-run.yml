@@ -19,7 +19,7 @@ env:
 jobs:
     changes:
         name: Detect Change Scope
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         outputs:
             docs_only: ${{ steps.scope.outputs.docs_only }}
             docs_changed: ${{ steps.scope.outputs.docs_changed }}
@@ -81,7 +81,7 @@ jobs:
         name: Build (Smoke)
         needs: [changes]
         if: needs.changes.outputs.rust_changed == 'true'
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         timeout-minutes: 20
 
         steps:
@@ -99,7 +99,7 @@ jobs:
         name: Docs-Only Fast Path
         needs: [changes]
         if: needs.changes.outputs.docs_only == 'true'
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         steps:
             - name: Skip heavy jobs for docs-only change
               run: echo "Docs-only change detected. Rust lint/test/build skipped."
@@ -108,7 +108,7 @@ jobs:
         name: Non-Rust Fast Path
         needs: [changes]
         if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.rust_changed != 'true'
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         steps:
             - name: Skip Rust jobs for non-Rust change scope
               run: echo "No Rust-impacting files changed. Rust lint/test/build skipped."
@@ -117,7 +117,7 @@ jobs:
         name: Docs Quality
         needs: [changes]
         if: needs.changes.outputs.docs_changed == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full'))
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -198,7 +198,7 @@ jobs:
         name: Workflow Owner Approval
         needs: [changes]
         if: github.event_name == 'pull_request' && needs.changes.outputs.workflow_changed == 'true'
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: ${{ github.repository_owner == 'zeroclaw-labs' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
         permissions:
             contents: read
             pull-requests: read
