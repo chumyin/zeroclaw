@@ -21,6 +21,7 @@ For first-time setup and quick orientation.
 ## Onboarding and Validation
 
 - Quick onboarding: `zeroclaw onboard --api-key "sk-..." --provider openrouter`
+- Quick onboarding with explicit non-strict policy: `zeroclaw onboard --security-profile flexible --yes-security-risk`
 - Interactive onboarding: `zeroclaw onboard --interactive`
 - Existing config protection: reruns require explicit confirmation (or `--force` in non-interactive flows)
 - Ollama cloud models (`:cloud`) require a remote `api_url` and API key (for example `api_url = "https://ollama.com"`).

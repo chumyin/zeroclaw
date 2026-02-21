@@ -1,3 +1,4 @@
+pub mod feature_packs;
 pub mod wizard;
 
 // Re-exported for CLI and external use
@@ -16,5 +17,7 @@ mod tests {
         assert_reexport_exists(run_channels_repair_wizard);
         assert_reexport_exists(run_quick_setup);
         assert_reexport_exists(run_models_refresh);
+        assert_reexport_exists(feature_pack_by_id);
+        assert_reexport_exists(preset_by_id);
     }
 }

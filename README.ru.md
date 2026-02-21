@@ -275,6 +275,20 @@ require_pairing = true
 allow_public_bind = false
 ```
 
+## OpenAI Codex OAuth + кастомный backend-proxy
+
+```toml
+# ~/.zeroclaw/config.toml
+default_provider = "openai-codex"
+default_model = "gpt-5-codex"
+api_url = "https://your-proxy.example.com/v1" # runtime отправляет /v1/responses
+```
+
+Опциональные env-переопределения:
+
+- `ZEROCLAW_CODEX_BASE_URL` (базовый URL; `/responses` добавляется автоматически)
+- `ZEROCLAW_CODEX_RESPONSES_URL` (полный endpoint URL)
+
 ## Навигация по документации
 
 - Хаб документации (English): [`docs/README.md`](docs/README.md)

@@ -47,6 +47,8 @@ pub mod pushover;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+#[cfg(feature = "tool-update")]
+pub mod self_update;
 pub mod shell;
 pub mod traits;
 pub mod web_search_tool;
@@ -83,6 +85,8 @@ pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
+#[cfg(feature = "tool-update")]
+pub use self_update::SelfUpdateTool;
 pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
@@ -282,6 +286,9 @@ pub fn all_tools_with_runtime(
     // Vision tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
+
+    #[cfg(feature = "tool-update")]
+    tools.push(Box::new(SelfUpdateTool::new()));
 
     if let Some(key) = composio_key {
         if !key.is_empty() {
@@ -602,5 +609,38 @@ mod tests {
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"delegate"));
+    }
+
+    #[cfg(feature = "tool-update")]
+    #[test]
+    fn all_tools_includes_self_update_when_feature_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"self_update"));
     }
 }

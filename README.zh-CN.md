@@ -280,6 +280,20 @@ require_pairing = true
 allow_public_bind = false
 ```
 
+## OpenAI Codex OAuth + 自定义后端代理
+
+```toml
+# ~/.zeroclaw/config.toml
+default_provider = "openai-codex"
+default_model = "gpt-5-codex"
+api_url = "https://your-proxy.example.com/v1" # 运行时会请求 /v1/responses
+```
+
+可选环境变量覆盖：
+
+- `ZEROCLAW_CODEX_BASE_URL`（基础 URL，运行时会自动追加 `/responses`）
+- `ZEROCLAW_CODEX_RESPONSES_URL`（完整 endpoint URL）
+
 ## 文档导航（推荐从这里开始）
 
 - 文档总览（英文）：[`docs/README.md`](docs/README.md)
