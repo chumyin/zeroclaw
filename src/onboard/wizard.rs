@@ -1128,7 +1128,8 @@ async fn run_quick_setup_with_home(
     let memory_backend_name = memory_backend
         .unwrap_or(default_memory_backend_key())
         .to_string();
-    let mut preset_selection = build_preset_selection("default", Vec::new())?;
+    let extra_pack_ids: Vec<String> = Vec::new();
+    let mut preset_selection = build_preset_selection("default", &extra_pack_ids)?;
     let risky = risky_pack_ids(&preset_selection);
     if !risky.is_empty() {
         let risky_set: BTreeSet<String> = risky.iter().cloned().collect();
