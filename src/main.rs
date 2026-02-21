@@ -32,7 +32,7 @@
     dead_code
 )]
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
@@ -1348,7 +1348,7 @@ fn print_security_profile_change_report(report: &SecurityProfileChangeReport) {
     }
 }
 
-fn handle_security_command(command: SecurityCommands, config: &mut Config) -> Result<()> {
+async fn handle_security_command(command: SecurityCommands, config: &mut Config) -> Result<()> {
     match command {
         SecurityCommands::Show => {
             print_security_profile_summary(config);
@@ -1419,7 +1419,7 @@ fn handle_security_command(command: SecurityCommands, config: &mut Config) -> Re
                 }
 
                 config.autonomy = next;
-                config.save()?;
+                config.save().await?;
                 println!("Saved config: {}", config.config_path.display());
                 println!("Rollback command: {}", report.rollback_command);
                 Ok(())
@@ -2283,7 +2283,7 @@ async fn main() -> Result<()> {
         Commands::Preset { preset_command } => handle_preset_command(preset_command, &config).await,
 
         Commands::Security { security_command } => {
-            handle_security_command(security_command, &mut config)
+            handle_security_command(security_command, &mut config).await
         }
 
         Commands::Providers => {
