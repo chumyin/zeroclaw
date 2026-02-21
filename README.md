@@ -998,6 +998,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `service install/start/stop/status/uninstall` | Manage background service (systemd user-level or OpenRC system-wide) |
 | `doctor` | Diagnose daemon/scheduler/channel freshness |
 | `status` | Show full system status |
+| `estop` | Engage/resume emergency-stop levels and view estop status |
 | `cron` | Manage scheduled tasks (`list/add/add-at/add-every/once/remove/update/pause/resume`) |
 | `models` | Refresh provider model catalogs (`models refresh`) |
 | `preset` | Manage preset composition/import/export/intent planning |
@@ -1049,6 +1050,8 @@ open_skills_enabled = true
 ```
 
 You can also override at runtime with `ZEROCLAW_OPEN_SKILLS_ENABLED`, `ZEROCLAW_OPEN_SKILLS_DIR`, and `ZEROCLAW_SKILLS_PROMPT_MODE` (`full` or `compact`).
+
+Skill installs are now gated by a built-in static security audit. `zeroclaw skills install <source>` blocks symlinks, script-like files, unsafe markdown link patterns, and high-risk shell payload snippets before accepting a skill. You can run `zeroclaw skills audit <source_or_name>` to validate a local directory or an installed skill manually.
 
 ## Development
 
