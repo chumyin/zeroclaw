@@ -322,6 +322,7 @@ pub fn all_tools_with_runtime(
                     .parent()
                     .map(std::path::PathBuf::from),
                 secrets_encrypt: root_config.secrets.encrypt,
+                provider_api_url: root_config.api_url.clone(),
                 reasoning_enabled: root_config.runtime.reasoning_enabled,
             },
         )

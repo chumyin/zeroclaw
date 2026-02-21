@@ -1848,6 +1848,10 @@ pub struct AutonomyConfig {
     /// Restrict absolute filesystem paths to workspace-relative references. Default: `true`.
     /// Resolved paths outside the workspace still require `allowed_roots`.
     pub workspace_only: bool,
+    /// Allow non-CLI channels (Telegram/Discord/etc.) to auto-approve guarded tools.
+    /// Default: `false` (strict, CLI-only explicit approvals).
+    #[serde(default)]
+    pub allow_non_cli_auto_approval: bool,
     /// Allowlist of executable names permitted for shell execution.
     pub allowed_commands: Vec<String>,
     /// Explicit path denylist. Default includes system-critical paths and sensitive dotdirs.

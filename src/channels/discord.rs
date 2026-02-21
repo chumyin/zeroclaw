@@ -2,7 +2,7 @@ use super::traits::{Channel, ChannelMessage, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use serde_json::json;
 use std::collections::HashMap;
 use tokio_tungstenite::tungstenite::Message;

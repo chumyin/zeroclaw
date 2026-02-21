@@ -5,7 +5,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use directories::UserDirs;
 use parking_lot::Mutex;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use reqwest::multipart::{Form, Part};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
