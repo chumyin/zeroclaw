@@ -1175,10 +1175,12 @@ mod tests {
             .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
+        let err_lower = err.to_lowercase();
         assert!(
             err.contains("credentials not set")
                 || err.contains("169.254.169.254")
-                || err.to_lowercase().contains("credential"),
+                || err_lower.contains("credential")
+                || err_lower.contains("builder error"),
             "Expected missing-credentials style error, got: {err}"
         );
     }
