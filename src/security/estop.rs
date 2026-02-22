@@ -1,6 +1,7 @@
 use crate::config::EstopConfig;
 use crate::security::domain_matcher::DomainMatcher;
 use crate::security::otp::OtpValidator;
+use crate::util::expand_tilde;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -252,7 +253,7 @@ impl EstopManager {
 }
 
 pub fn resolve_state_file_path(config_dir: &Path, state_file: &str) -> PathBuf {
-    let expanded = shellexpand::tilde(state_file).into_owned();
+    let expanded = expand_tilde(state_file);
     let path = PathBuf::from(expanded);
     if path.is_absolute() {
         path

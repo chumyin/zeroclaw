@@ -2,6 +2,25 @@
 //!
 //! This module contains reusable helper functions used across the codebase.
 
+/// Expand a leading `~` to the current user's home directory.
+///
+/// Supported forms:
+/// - `~`
+/// - `~/sub/path`
+///
+/// Other inputs are returned unchanged.
+pub fn expand_tilde(path: &str) -> String {
+    let home = directories::UserDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    match (path, home) {
+        ("~", Some(home)) => home.to_string_lossy().into_owned(),
+        (_, Some(home)) => path.strip_prefix("~/").map_or_else(
+            || path.to_string(),
+            |rest| home.join(rest).to_string_lossy().into_owned(),
+        ),
+        _ => path.to_string(),
+    }
+}
+
 /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
 ///
 /// This function safely handles multi-byte UTF-8 characters (emoji, CJK, accented characters)
@@ -53,6 +72,32 @@ pub enum MaybeSet<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_expand_tilde_noop_for_non_tilde_paths() {
+        assert_eq!(expand_tilde("/tmp/zeroclaw"), "/tmp/zeroclaw");
+        assert_eq!(expand_tilde("relative/path"), "relative/path");
+        assert_eq!(expand_tilde("~someone/path"), "~someone/path");
+    }
+
+    #[test]
+    fn test_expand_tilde_home_and_child_path() {
+        let home = directories::UserDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+        match home {
+            Some(home_dir) => {
+                let expanded_home = PathBuf::from(expand_tilde("~"));
+                assert_eq!(expanded_home, home_dir);
+
+                let expanded_child = PathBuf::from(expand_tilde("~/zeroclaw-test"));
+                assert_eq!(expanded_child, home_dir.join("zeroclaw-test"));
+            }
+            None => {
+                assert_eq!(expand_tilde("~"), "~");
+                assert_eq!(expand_tilde("~/zeroclaw-test"), "~/zeroclaw-test");
+            }
+        }
+    }
 
     #[test]
     fn test_truncate_ascii_no_truncation() {
