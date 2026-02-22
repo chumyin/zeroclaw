@@ -2,7 +2,7 @@
 
 This page is the primary entry point for the documentation system.
 
-Last refreshed: **February 21, 2026**.
+Last refreshed: **February 22, 2026**.
 
 Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [Tiếng Việt](i18n/vi/README.md).
 
@@ -14,6 +14,7 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 | Bootstrap in one command | [one-click-bootstrap.md](one-click-bootstrap.md) |
 | Find commands by task | [commands-reference.md](commands-reference.md) |
 | Understand preset composition/import/export/share flows | [presets-guide.md](presets-guide.md) |
+| Integrate machine-readable preset JSON reports | [preset-machine-contract.md](preset-machine-contract.md) |
 | Pick the right official preset quickly | [preset-recommendation-matrix.md](preset-recommendation-matrix.md) |
 | Check config defaults and keys quickly | [config-reference.md](config-reference.md) |
 | Configure custom providers/endpoints | [custom-providers.md](custom-providers.md) |
@@ -52,6 +53,7 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 
 - [commands-reference.md](commands-reference.md) — command lookup by workflow
 - [presets-guide.md](presets-guide.md) — presets architecture, import/export modes, and contribution workflow
+- [preset-machine-contract.md](preset-machine-contract.md) — machine JSON contract for preset orchestration reports
 - [preset-recommendation-matrix.md](preset-recommendation-matrix.md) — official scenario-to-preset recommendation matrix
 - [providers-reference.md](providers-reference.md) — provider IDs, aliases, credential env vars
 - [channels-reference.md](channels-reference.md) — channel capabilities and setup paths

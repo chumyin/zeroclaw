@@ -438,6 +438,7 @@ pub fn recommend_security_profile(
 fn build_preset_selection(
     preset_id: &str,
     extra_pack_ids: &[String],
+    remove_pack_ids: &[String],
 ) -> Result<OnboardPresetSelection> {
     let preset = preset_by_id(preset_id).with_context(|| {
         format!(
@@ -465,6 +466,25 @@ fn build_preset_selection(
         if packs.insert(pack_id.to_string()) {
             added_packs.insert(pack_id.to_string());
         }
+    }
+
+    let mut remove_set: BTreeSet<String> = BTreeSet::new();
+    for raw_pack in remove_pack_ids {
+        let pack_id = raw_pack.trim();
+        if pack_id.is_empty() {
+            continue;
+        }
+        if feature_pack_by_id(pack_id).is_none() {
+            bail!("Unknown remove-pack id '{pack_id}'");
+        }
+        remove_set.insert(pack_id.to_string());
+    }
+    if remove_set.contains("core-agent") {
+        bail!("Cannot remove mandatory pack 'core-agent'");
+    }
+    if !remove_set.is_empty() {
+        packs.retain(|pack| !remove_set.contains(pack));
+        added_packs.retain(|pack| !remove_set.contains(pack));
     }
 
     Ok(OnboardPresetSelection {
@@ -559,7 +579,7 @@ fn setup_preset_selection_interactive() -> Result<OnboardPresetSelection> {
         }
     }
 
-    let mut selection = build_preset_selection(selected_preset.id, &extra_pack_ids)?;
+    let mut selection = build_preset_selection(selected_preset.id, &extra_pack_ids, &[])?;
     let risky = risky_pack_ids(&selection);
 
     if !risky.is_empty() {
@@ -775,6 +795,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
         autonomy: autonomy_config,
+        security: crate::config::SecurityConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
         scheduler: crate::config::schema::SchedulerConfig::default(),
@@ -1010,7 +1031,7 @@ fn apply_provider_update(
 
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `zeroclaw onboard` or
-/// `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid --preset default --pack browser-native --security-profile strict|balanced|flexible|full --yes-security-risk`.
+/// `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid --preset minimal|default|automation --pack browser-native --security-profile strict|balanced|flexible|full --yes-security-risk`.
 /// Use `zeroclaw onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -1056,17 +1077,27 @@ pub async fn run_quick_setup(
     provider: Option<&str>,
     model_override: Option<&str>,
     memory_backend: Option<&str>,
+    preset_id: Option<&str>,
+    extra_pack_ids: &[String],
+    remove_pack_ids: &[String],
+    security_profile_id: Option<&str>,
+    yes_security_risk: bool,
     force: bool,
 ) -> Result<Config> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
 
-    run_quick_setup_with_home(
+    run_quick_setup_with_home_with_selection(
         credential_override,
         provider,
         model_override,
         memory_backend,
+        preset_id,
+        extra_pack_ids,
+        remove_pack_ids,
+        security_profile_id,
+        yes_security_risk,
         force,
         &home,
     )
@@ -1104,6 +1135,37 @@ async fn run_quick_setup_with_home(
     force: bool,
     home: &Path,
 ) -> Result<Config> {
+    let extra_pack_ids: Vec<String> = Vec::new();
+    run_quick_setup_with_home_with_selection(
+        credential_override,
+        provider,
+        model_override,
+        memory_backend,
+        None,
+        &extra_pack_ids,
+        &[],
+        None,
+        false,
+        force,
+        home,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_lines)]
+async fn run_quick_setup_with_home_with_selection(
+    credential_override: Option<&str>,
+    provider: Option<&str>,
+    model_override: Option<&str>,
+    memory_backend: Option<&str>,
+    preset_id: Option<&str>,
+    extra_pack_ids: &[String],
+    remove_pack_ids: &[String],
+    security_profile_id: Option<&str>,
+    yes_security_risk: bool,
+    force: bool,
+    home: &Path,
+) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
     println!(
         "  {}",
@@ -1128,24 +1190,30 @@ async fn run_quick_setup_with_home(
     let memory_backend_name = memory_backend
         .unwrap_or(default_memory_backend_key())
         .to_string();
-    let extra_pack_ids: Vec<String> = Vec::new();
-    let mut preset_selection = build_preset_selection("default", &extra_pack_ids)?;
+    let selected_preset_id = preset_id.unwrap_or("minimal");
+    let preset_selection =
+        build_preset_selection(selected_preset_id, extra_pack_ids, remove_pack_ids)?;
     let risky = risky_pack_ids(&preset_selection);
-    if !risky.is_empty() {
-        let risky_set: BTreeSet<String> = risky.iter().cloned().collect();
-        drop_pack_ids(&mut preset_selection, &risky_set);
-        println!(
-            "  {} Skipped risky packs in quick mode: {}",
-            style("!").yellow().bold(),
-            style(risky.join(", ")).yellow()
-        );
-        println!(
-            "  {} Use `zeroclaw onboard --interactive` to approve risky packs explicitly.",
-            style("↳").dim()
+    if !risky.is_empty() && !yes_security_risk {
+        bail!(
+            "Selected preset/packs include risky packs [{}]. Re-run with `--yes-security-risk`, choose a safer preset, or remove risky packs.",
+            risky.join(", ")
         );
     }
 
-    let autonomy_config = autonomy_config_for_security_profile(SecurityProfile::Strict);
+    let autonomy_config = if let Some(profile_id) = security_profile_id {
+        autonomy_config_for_security_profile_id(profile_id)?
+    } else {
+        autonomy_config_for_security_profile(SecurityProfile::Strict)
+    };
+    let resolved_security_profile = security_profile_id_from_autonomy(&autonomy_config);
+    let resolved_security_profile_label = security_profile_label(&autonomy_config).to_string();
+    if resolved_security_profile != "strict" && !yes_security_risk {
+        bail!(
+            "Security profile '{}' requires explicit confirmation in quick setup. Re-run with `--yes-security-risk`.",
+            resolved_security_profile
+        );
+    }
 
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
@@ -1164,6 +1232,7 @@ async fn run_quick_setup_with_home(
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
         autonomy: autonomy_config,
+        security: crate::config::SecurityConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
         scheduler: crate::config::schema::SchedulerConfig::default(),
@@ -1224,6 +1293,22 @@ async fn run_quick_setup_with_home(
         "  {} Model:      {}",
         style("✓").green().bold(),
         style(&model).green()
+    );
+    println!(
+        "  {} Preset:     {}",
+        style("✓").green().bold(),
+        style(selected_preset_id).green()
+    );
+    println!(
+        "  {} Packs:      {}",
+        style("✓").green().bold(),
+        style(preset_selection.packs.join(", ")).green()
+    );
+    println!(
+        "  {} Security:   {} ({})",
+        style("✓").green().bold(),
+        style(resolved_security_profile_label).green(),
+        style(resolved_security_profile).dim()
     );
     println!(
         "  {} API Key:    {}",
@@ -6447,6 +6532,9 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_model_override_persists_to_config_toml() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
         let tmp = TempDir::new().unwrap();
 
         let config = run_quick_setup_with_home(
@@ -6471,6 +6559,9 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_without_model_uses_provider_default_model() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
         let tmp = TempDir::new().unwrap();
 
         let config = run_quick_setup_with_home(
@@ -6490,7 +6581,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn quick_setup_defaults_to_minimal_preset_selection() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
+        let tmp = TempDir::new().unwrap();
+
+        let config = run_quick_setup_with_home(
+            Some("sk-minimal"),
+            Some("openrouter"),
+            None,
+            Some("sqlite"),
+            false,
+            tmp.path(),
+        )
+        .await
+        .expect("quick setup should succeed with minimal defaults");
+
+        let selection_path = config.workspace_dir.join(PRESET_SELECTION_FILE);
+        let selection_raw = tokio::fs::read_to_string(selection_path).await.unwrap();
+        let selection: OnboardPresetSelection = serde_json::from_str(&selection_raw).unwrap();
+
+        assert_eq!(selection.preset_id, "minimal");
+        assert_eq!(selection.packs, vec!["core-agent".to_string()]);
+        assert!(selection.added_packs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn quick_setup_accepts_custom_preset_pack_and_security_with_explicit_consent() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
+        let tmp = TempDir::new().unwrap();
+        let extra = vec!["rag-pdf".to_string()];
+
+        let config = run_quick_setup_with_home_with_selection(
+            Some("sk-flex"),
+            Some("openrouter"),
+            None,
+            Some("sqlite"),
+            Some("automation"),
+            &extra,
+            &[],
+            Some("flexible"),
+            true,
+            false,
+            tmp.path(),
+        )
+        .await
+        .expect("quick setup should accept risky/non-strict config with explicit consent");
+
+        assert!(!config.autonomy.workspace_only);
+        assert!(config.autonomy.require_approval_for_medium_risk);
+        assert!(config.autonomy.block_high_risk_commands);
+
+        let selection_path = config.workspace_dir.join(PRESET_SELECTION_FILE);
+        let selection_raw = tokio::fs::read_to_string(selection_path).await.unwrap();
+        let selection: OnboardPresetSelection = serde_json::from_str(&selection_raw).unwrap();
+        assert_eq!(selection.preset_id, "automation");
+        assert!(selection.packs.iter().any(|pack| pack == "tools-update"));
+        assert!(selection.packs.iter().any(|pack| pack == "rag-pdf"));
+        assert!(selection.added_packs.iter().any(|pack| pack == "rag-pdf"));
+    }
+
+    #[tokio::test]
+    async fn quick_setup_rejects_risky_pack_without_explicit_consent() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
+        let tmp = TempDir::new().unwrap();
+        let extra = vec!["tools-update".to_string()];
+
+        let err = run_quick_setup_with_home_with_selection(
+            Some("sk-risk"),
+            Some("openrouter"),
+            None,
+            Some("sqlite"),
+            Some("minimal"),
+            &extra,
+            &[],
+            None,
+            false,
+            false,
+            tmp.path(),
+        )
+        .await
+        .expect_err("quick setup should reject risky pack without explicit consent");
+
+        let text = err.to_string();
+        assert!(text.contains("risky packs"));
+        assert!(text.contains("--yes-security-risk"));
+    }
+
+    #[tokio::test]
+    async fn quick_setup_rejects_non_strict_security_without_explicit_consent() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
+        let tmp = TempDir::new().unwrap();
+        let extra: Vec<String> = Vec::new();
+
+        let err = run_quick_setup_with_home_with_selection(
+            Some("sk-sec"),
+            Some("openrouter"),
+            None,
+            Some("sqlite"),
+            Some("minimal"),
+            &extra,
+            &[],
+            Some("balanced"),
+            false,
+            false,
+            tmp.path(),
+        )
+        .await
+        .expect_err("quick setup should reject non-strict profile without explicit consent");
+
+        let text = err.to_string();
+        assert!(text.contains("requires explicit confirmation"));
+        assert!(text.contains("--yes-security-risk"));
+    }
+
+    #[tokio::test]
     async fn quick_setup_existing_config_requires_force_when_non_interactive() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
         let tmp = TempDir::new().unwrap();
         let zeroclaw_dir = tmp.path().join(".zeroclaw");
         let config_path = zeroclaw_dir.join("config.toml");
@@ -6518,6 +6734,9 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_existing_config_overwrites_with_force() {
+        let _env_guard = env_lock().lock().unwrap();
+        let _workspace_env = EnvVarGuard::unset("ZEROCLAW_WORKSPACE");
+        let _config_env = EnvVarGuard::unset("ZEROCLAW_CONFIG_DIR");
         let tmp = TempDir::new().unwrap();
         let zeroclaw_dir = tmp.path().join(".zeroclaw");
         let config_path = zeroclaw_dir.join("config.toml");
@@ -7589,7 +7808,7 @@ mod tests {
 
     #[test]
     fn build_preset_selection_uses_official_default() {
-        let selection = build_preset_selection("default", &[]).unwrap();
+        let selection = build_preset_selection("default", &[], &[]).unwrap();
         assert_eq!(selection.schema_version, 1);
         assert_eq!(selection.preset_id, "default");
         assert!(selection.packs.contains(&"core-agent".to_string()));
@@ -7599,7 +7818,7 @@ mod tests {
     #[test]
     fn build_preset_selection_merges_extra_packs() {
         let extra = vec!["browser-native".to_string()];
-        let selection = build_preset_selection("minimal", &extra).unwrap();
+        let selection = build_preset_selection("minimal", &extra, &[]).unwrap();
         assert_eq!(selection.preset_id, "minimal");
         assert_eq!(selection.added_packs, vec!["browser-native".to_string()]);
         assert!(selection.packs.contains(&"core-agent".to_string()));
@@ -7609,20 +7828,43 @@ mod tests {
     #[test]
     fn build_preset_selection_rejects_unknown_pack() {
         let extra = vec!["pack-that-does-not-exist".to_string()];
-        let err = build_preset_selection("minimal", &extra).unwrap_err();
+        let err = build_preset_selection("minimal", &extra, &[]).unwrap_err();
         assert!(err.to_string().contains("Unknown pack id"));
+    }
+
+    #[test]
+    fn build_preset_selection_supports_remove_pack() {
+        let remove = vec!["tools-update".to_string()];
+        let selection = build_preset_selection("default", &[], &remove).unwrap();
+        assert_eq!(selection.preset_id, "default");
+        assert!(selection.packs.iter().all(|pack| pack != "tools-update"));
+        assert!(selection.packs.iter().any(|pack| pack == "core-agent"));
+    }
+
+    #[test]
+    fn build_preset_selection_rejects_unknown_remove_pack() {
+        let remove = vec!["pack-that-does-not-exist".to_string()];
+        let err = build_preset_selection("minimal", &[], &remove).unwrap_err();
+        assert!(err.to_string().contains("Unknown remove-pack id"));
+    }
+
+    #[test]
+    fn build_preset_selection_rejects_removing_core_agent() {
+        let remove = vec!["core-agent".to_string()];
+        let err = build_preset_selection("minimal", &[], &remove).unwrap_err();
+        assert!(err.to_string().contains("Cannot remove mandatory pack"));
     }
 
     #[test]
     fn persist_preset_selection_writes_json_file() {
         let tmp = TempDir::new().unwrap();
-        let selection = build_preset_selection("minimal", &[]).unwrap();
+        let selection = build_preset_selection("minimal", &[], &[]).unwrap();
         let path = persist_preset_selection(tmp.path(), &selection).unwrap();
         assert_eq!(
             path.file_name().and_then(std::ffi::OsStr::to_str),
             Some(PRESET_SELECTION_FILE)
         );
-        let raw = fs::read_to_string(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
         let parsed: OnboardPresetSelection = serde_json::from_str(&raw).unwrap();
         assert_eq!(parsed.preset_id, "minimal");
         assert_eq!(parsed.schema_version, 1);

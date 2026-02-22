@@ -282,7 +282,7 @@ cargo install --path . --force --locked
 # Ensure ~/.cargo/bin is in your PATH
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# Quick setup (no prompts, optional model specification)
+# Quick setup (core-first: default preset is `minimal`, optional model specification)
 zeroclaw onboard --api-key sk-... --provider openrouter [--model "openrouter/auto"]
 
 # Quick setup with a non-strict security profile (explicit consent required)
@@ -292,6 +292,7 @@ zeroclaw onboard --security-profile flexible --yes-security-risk
 zeroclaw security show
 zeroclaw security profile recommend "need unattended browser automation"
 zeroclaw security profile recommend "hardened deployment" --from-preset hardened-linux --remove-pack tools-update
+# Machine-readable policy preview includes schema_version/report_type and risk reason keys
 zeroclaw security profile set balanced --dry-run --json
 zeroclaw security profile set strict --non-cli-approval manual
 # Higher risk: allows non-CLI channels to auto-approve approval-gated tool calls
@@ -299,12 +300,36 @@ zeroclaw security profile set strict --non-cli-approval auto --yes-risk
 zeroclaw security profile set strict
 
 # Quick setup with official preset + extra packs
-zeroclaw onboard --preset automation --pack rag-pdf
+# (applying riskier packs/non-strict profiles requires explicit `--yes-security-risk`)
+zeroclaw onboard --preset automation --pack rag-pdf --yes-security-risk
+
+# Quick setup via natural-language intent planning (auto maps to preset/packs)
+zeroclaw onboard --intent "need browser automation but no update"
+
+# Preview onboarding composition without writing files
+# (dry-run can preview risky/non-strict plans and prints warnings for required consent)
+zeroclaw onboard --intent "need browser automation but no update" --dry-run --rebuild
+
+# Machine-readable onboarding preview (quick mode only; requires --dry-run)
+# includes schema_version/report_type + stable reason/key fields for UI/i18n wiring
+# consent_reasons: risky_pack, security_non_strict
+# consent_reason_keys: consent.reason.risky_pack, consent.reason.security_non_strict
+zeroclaw onboard --intent "need unattended browser automation with updates" --provider openrouter --api-key sk-... --dry-run --json
+
+# Optional: rebuild immediately based on selected preset/packs
+zeroclaw onboard --preset automation --pack rag-pdf --yes-security-risk --rebuild --yes-rebuild
 
 # Post-onboard: plan composition from natural-language intent
 zeroclaw preset intent "need browser automation but no update" --dry-run
 zeroclaw preset intent "need unattended browser automation" --json
 zeroclaw preset intent "need unattended browser automation" --emit-shell ./scripts/preset-plan.sh
+# Machine-readable dry-run previews for apply/import orchestration (requires --dry-run)
+zeroclaw preset apply --preset automation --pack rag-pdf --dry-run --json
+zeroclaw preset import ./presets/community/template.preset.json --mode merge --dry-run --json
+# Machine-readable export report (includes bytes/hash + source metadata)
+zeroclaw preset export ./preset-export.json --json
+# Validate preset files in machine-readable mode (schema_version/report_type included)
+zeroclaw preset validate ./presets/community --json
 
 # Apply + optional rebuild (explicit confirmations required)
 zeroclaw preset intent "need embedded debug with datasheets" --apply --yes-risky --rebuild --yes-rebuild
@@ -313,6 +338,7 @@ zeroclaw preset intent "need embedded debug with datasheets" --apply --yes-risky
 zeroclaw onboard --interactive
 # Interactive flow includes security profile selection
 # (default: Strict supervised; weaker profiles require explicit risk acknowledgment)
+# Interactive flow now also asks whether to run rebuild immediately after onboarding.
 # After preset/pack selection, onboarding also proposes a preset-aware security profile adjustment.
 # The wizard keeps the default view concise and can expand detailed rationale on demand.
 # If tool execution is blocked by security policy, agent responses now include
@@ -1101,6 +1127,7 @@ Start from the docs hub for a task-based map:
 - Unified docs TOC: [`docs/SUMMARY.md`](docs/SUMMARY.md)
 - Commands reference: [`docs/commands-reference.md`](docs/commands-reference.md)
 - Presets guide: [`docs/presets-guide.md`](docs/presets-guide.md)
+- Preset machine JSON contract: [`docs/preset-machine-contract.md`](docs/preset-machine-contract.md)
 - Preset recommendation matrix: [`docs/preset-recommendation-matrix.md`](docs/preset-recommendation-matrix.md)
 - Config reference: [`docs/config-reference.md`](docs/config-reference.md)
 - Providers reference: [`docs/providers-reference.md`](docs/providers-reference.md)

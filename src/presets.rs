@@ -53,7 +53,7 @@ impl std::fmt::Display for PresetImportMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SelectionDiff {
     pub before_preset_id: Option<String>,
     pub after_preset_id: String,
@@ -165,10 +165,25 @@ pub struct PresetValidationResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PresetValidationReport {
+    #[serde(default = "preset_validation_schema_version")]
+    pub schema_version: u32,
+    #[serde(default = "preset_validation_report_type")]
+    pub report_type: String,
     pub files_checked: usize,
     pub files_failed: usize,
     pub allow_unknown_packs: bool,
     pub results: Vec<PresetValidationResult>,
+}
+
+const PRESET_VALIDATION_REPORT_SCHEMA_VERSION: u32 = 1;
+const PRESET_VALIDATION_REPORT_TYPE: &str = "preset.validation";
+
+const fn preset_validation_schema_version() -> u32 {
+    PRESET_VALIDATION_REPORT_SCHEMA_VERSION
+}
+
+fn preset_validation_report_type() -> String {
+    PRESET_VALIDATION_REPORT_TYPE.to_string()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -601,6 +616,8 @@ pub fn validate_preset_paths(
     let files_failed = results.iter().filter(|result| !result.ok).count();
 
     Ok(PresetValidationReport {
+        schema_version: PRESET_VALIDATION_REPORT_SCHEMA_VERSION,
+        report_type: PRESET_VALIDATION_REPORT_TYPE.to_string(),
         files_checked,
         files_failed,
         allow_unknown_packs,
@@ -1606,6 +1623,11 @@ mod tests {
         .unwrap();
 
         let report = validate_preset_paths(&[path], false).unwrap();
+        assert_eq!(
+            report.schema_version,
+            PRESET_VALIDATION_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(report.report_type, PRESET_VALIDATION_REPORT_TYPE);
         assert_eq!(report.files_checked, 1);
         assert_eq!(report.files_failed, 1);
         assert!(report.results[0]
@@ -1637,6 +1659,11 @@ mod tests {
         .unwrap();
 
         let report = validate_preset_paths(&[path], false).unwrap();
+        assert_eq!(
+            report.schema_version,
+            PRESET_VALIDATION_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(report.report_type, PRESET_VALIDATION_REPORT_TYPE);
         assert_eq!(report.files_checked, 1);
         assert_eq!(report.files_failed, 0);
         assert!(report.results[0].ok);

@@ -6,6 +6,7 @@ Structured reference index for commands, providers, channels, config, and integr
 
 - Commands by workflow: [../commands-reference.md](../commands-reference.md)
 - Preset composition + import/export/share modes: [../presets-guide.md](../presets-guide.md)
+- Preset machine JSON runtime contract: [../preset-machine-contract.md](../preset-machine-contract.md)
 - Official preset recommendations by scenario: [../preset-recommendation-matrix.md](../preset-recommendation-matrix.md)
 - Provider IDs / aliases / env vars: [../providers-reference.md](../providers-reference.md)
 - Channel setup + allowlists: [../channels-reference.md](../channels-reference.md)
