@@ -20,6 +20,7 @@ use crate::providers::{
     is_zai_cn_alias,
 };
 use crate::security::AutonomyLevel;
+use crate::util::expand_tilde;
 use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, MultiSelect, Select};
@@ -2668,7 +2669,7 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
         let custom: String = Input::new()
             .with_prompt("  Enter workspace path")
             .interact_text()?;
-        let expanded = shellexpand::tilde(&custom).to_string();
+        let expanded = expand_tilde(&custom);
         crate::config::schema::resolve_config_dir_for_workspace(&PathBuf::from(expanded))
     };
 
