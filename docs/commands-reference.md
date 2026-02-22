@@ -2,7 +2,7 @@
 
 This reference is derived from the current CLI surface (`zeroclaw --help`).
 
-Last verified: **February 21, 2026**.
+Last verified: **February 22, 2026**.
 
 ## Top-Level Commands
 
@@ -41,6 +41,12 @@ Last verified: **February 21, 2026**.
 - `zeroclaw onboard --force`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
+- `zeroclaw onboard --preset <minimal|default|automation|hardware-lab|hardened-linux> [--pack <PACK>]...`
+- `zeroclaw onboard --intent "<natural language requirements>"`
+- `zeroclaw onboard --intent "<natural language requirements>" --dry-run [--rebuild]`
+- `zeroclaw onboard --intent "<natural language requirements>" --dry-run --json`
+- `zeroclaw onboard --security-profile <strict|balanced|flexible|full> [--yes-security-risk]`
+- `zeroclaw onboard --rebuild --yes-rebuild`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none> --force`
 
 `onboard` safety behavior:
@@ -49,6 +55,20 @@ Last verified: **February 21, 2026**.
   - Full onboarding (overwrite `config.toml`)
   - Provider-only update (update provider/model/API key while preserving existing channels, tunnel, memory, hooks, and other settings)
 - In non-interactive environments, existing `config.toml` causes a safe refusal unless `--force` is passed.
+- Quick mode defaults to the `minimal` preset (core-first, no risky packs).
+- `--intent` uses built-in intent rules to map natural-language requirements to preset/packs in quick mode.
+- `--dry-run` previews quick onboarding composition without writing `config.toml` or workspace scaffold files.
+- `onboard --json` is quick dry-run only and requires `--dry-run`; it is intended for machine consumers.
+- Applying risky packs (for example `tools-update`) or a non-strict security profile requires explicit `--yes-security-risk` consent in quick mode.
+- `--dry-run` can preview risky/non-strict plans without consent and prints warnings describing what would require confirmation at apply time.
+- `onboard --dry-run --json` includes `schema_version` for parser compatibility and stable reason fields for UI/agent flows:
+  - `report_type`: `onboard.quick_dry_run`
+  - `consent_reasons`: `risky_pack`, `security_non_strict`
+  - `consent_reason_keys`: `consent.reason.risky_pack`, `consent.reason.security_non_strict`
+  - `warning_codes`: `risky_pack_requires_consent`, `security_non_strict_requires_consent`
+  - `warning_keys`: `onboard.warning.risky_pack_requires_consent`, `onboard.warning.security_non_strict_requires_consent`
+- Rebuild execution requires both `--rebuild` and `--yes-rebuild`.
+- In interactive onboard sessions, the wizard can prompt to run rebuild immediately after setup.
 - Use `zeroclaw onboard --channels-only` when you only need to rotate channel tokens/allowlists.
 
 ### `agent`
@@ -133,13 +153,13 @@ Notes:
 - `zeroclaw preset list`
 - `zeroclaw preset show <ID>`
 - `zeroclaw preset current`
-- `zeroclaw preset apply [--preset <ID>] [--pack <PACK>]... [--remove-pack <PACK>]... [--dry-run] [--yes-risky] [--rebuild --yes-rebuild]`
+- `zeroclaw preset apply [--preset <ID>] [--pack <PACK>]... [--remove-pack <PACK>]... [--dry-run] [--yes-risky] [--rebuild --yes-rebuild] [--json]`
 - `zeroclaw preset intent "<text>" [--capabilities-file <path>]...` (plan only)
 - `zeroclaw preset intent "<text>" --json [--capabilities-file <path>]...` (plan + security recommendation + generated next commands, no write)
 - `zeroclaw preset intent "<text>" --emit-shell <path> [--capabilities-file <path>]...` (write orchestration script template, no execute)
 - `zeroclaw preset intent "<text>" --apply [--capabilities-file <path>]... [--dry-run] [--yes-risky] [--rebuild --yes-rebuild]`
-- `zeroclaw preset export <path> [--preset <ID>]`
-- `zeroclaw preset import <path> [--mode overwrite|merge|fill] [--dry-run] [--yes-risky] [--rebuild --yes-rebuild]`
+- `zeroclaw preset export <path> [--preset <ID>] [--json]`
+- `zeroclaw preset import <path> [--mode overwrite|merge|fill] [--dry-run] [--yes-risky] [--rebuild --yes-rebuild] [--json]`
 - `zeroclaw preset validate <path...> [--allow-unknown-packs] [--json]`
 - `zeroclaw preset rebuild [--dry-run] [--yes]`
 
@@ -147,10 +167,17 @@ Safety notes:
 
 - Risk-gated packs require explicit approval with `--yes-risky` when applying/importing/intent-applying.
 - Rebuild execution requires explicit approval (`--yes-rebuild` for apply/import/intent and `--yes` for `preset rebuild`).
+- `preset apply --json` and `preset import --json` are machine dry-run previews only and require `--dry-run`.
+- `preset export --json` emits a machine-readable write report (`preset.export`) and still writes the export payload file.
 - `preset intent --json` is advisory/orchestration mode only and cannot be combined with `--apply`.
 - `preset intent --emit-shell` is advisory/orchestration mode only and cannot be combined with `--apply`.
 - `preset intent` in plan mode prints generated follow-up commands but does not execute them.
-- `preset intent --json` includes `next_commands[].consent_reasons` for UI/agent confirmation flows (for example `risky_pack`, `rebuild`, `security_non_strict`).
+- `preset apply --dry-run --json` includes `schema_version`, `report_type` (`preset.apply_dry_run`), `selection_diff`, risky-pack consent fields (`apply_consent_reasons`, `apply_consent_reason_keys`), and optional `rebuild_preview`.
+- `preset import --dry-run --json` includes `schema_version`, `report_type` (`preset.import_dry_run`), import metadata (`import_mode`, `source_path`), `selection_diff`, risky-pack consent fields, and optional `rebuild_preview`.
+- `preset export --json` includes `schema_version`, `report_type` (`preset.export`), export provenance (`source_kind`, `requested_preset`), and integrity metadata (`target_path`, `bytes_written`, `payload_sha256`).
+- `preset intent --json` includes `schema_version`, `report_type` (`preset.intent_orchestration`), plus `next_commands[].consent_reasons` and `next_commands[].consent_reason_keys` for UI/agent confirmation flows (for example `risky_pack` + `consent.reason.risky_pack`).
+- `preset validate --json` includes `schema_version`, `report_type` (`preset.validation`), and per-file structured results suitable for CI/automation pipelines.
+- For field-level compatibility guarantees and integration guidance, see [preset-machine-contract.md](preset-machine-contract.md).
 
 ### `security`
 
@@ -176,6 +203,8 @@ Safety notes:
 - `security profile set` supports machine-readable reports via `--json` and file export via `--export-diff <PATH>`.
 - `security profile recommend` is advisory-only (no write). Use it to turn intent text + preset plan into a guarded profile suggestion.
 - `security profile recommend` supports preflight composition via `--from-preset`, `--pack`, and `--remove-pack` without mutating workspace state.
+- `security profile set --json` includes `schema_version`, `report_type` (`security.profile_change`), and structured consent reasons (`risk_consent_reasons`, `risk_consent_reason_keys`).
+- `security profile recommend --json` includes `schema_version`, `report_type` (`security.profile_recommendation`), and apply-step consent fields (`apply_requires_explicit_risk_consent`, `apply_consent_reasons`, `apply_consent_reason_keys`).
 - If you need to immediately return to safe defaults, run `zeroclaw security profile set strict`.
 - After onboarding, agent tool calls cannot silently bypass policy guards. If an operation is blocked by security policy, tool results include remediation guidance (`security show`, `security profile recommend`, and graded `security profile set ... --yes-risk` options) plus explicit risk warnings.
 

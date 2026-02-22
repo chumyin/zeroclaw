@@ -3,11 +3,13 @@ pub mod wizard;
 
 // Re-exported for CLI and external use
 #[allow(unused_imports)]
-pub use feature_packs::{feature_pack_by_id, preset_by_id, FeaturePack, Preset, FEATURE_PACKS, PRESETS};
+pub use feature_packs::{
+    feature_pack_by_id, preset_by_id, FeaturePack, Preset, FEATURE_PACKS, PRESETS,
+};
 pub use wizard::{
-    autonomy_config_for_security_profile_id, recommend_security_profile, run_channels_repair_wizard,
-    run_models_refresh, run_quick_setup, run_wizard, security_profile_id_from_autonomy,
-    security_profile_label, SecurityProfileRecommendation,
+    autonomy_config_for_security_profile_id, recommend_security_profile,
+    run_channels_repair_wizard, run_models_refresh, run_quick_setup, run_wizard,
+    security_profile_id_from_autonomy, security_profile_label, SecurityProfileRecommendation,
 };
 
 #[cfg(test)]

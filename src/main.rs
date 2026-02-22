@@ -34,9 +34,10 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
-use dialoguer::{Input, Password};
+use dialoguer::{Confirm, Input, Password};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use sha2::{Digest, Sha256};
+use std::io::{IsTerminal, Write};
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -163,13 +164,17 @@ enum Commands {
         #[arg(long)]
         memory: Option<String>,
 
-        /// Official preset ID (used in quick mode, default: default)
+        /// Official preset ID (used in quick mode, default: minimal)
         #[arg(long)]
         preset: Option<String>,
 
         /// Extra pack ID to add on top of selected preset (repeatable)
         #[arg(long = "pack")]
         pack: Vec<String>,
+
+        /// Natural-language intent used to plan preset/packs in quick mode
+        #[arg(long)]
+        intent: Option<String>,
 
         /// Security profile for quick onboarding (default: strict)
         #[arg(long = "security-profile", value_enum)]
@@ -178,6 +183,22 @@ enum Commands {
         /// Confirm using a non-strict security profile in quick onboarding
         #[arg(long = "yes-security-risk")]
         yes_security_risk: bool,
+
+        /// Preview quick onboarding plan without writing config/workspace files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Emit structured JSON output (quick dry-run mode only)
+        #[arg(long)]
+        json: bool,
+
+        /// Rebuild binary after onboarding with selected preset/packs
+        #[arg(long)]
+        rebuild: bool,
+
+        /// Confirm rebuild execution
+        #[arg(long)]
+        yes_rebuild: bool,
     },
 
     /// Start the AI agent loop
@@ -674,6 +695,10 @@ enum PresetCommands {
         /// Confirm rebuild execution
         #[arg(long)]
         yes_rebuild: bool,
+
+        /// Emit machine-readable dry-run report (requires --dry-run)
+        #[arg(long)]
+        json: bool,
     },
     /// Build a preset plan from natural language intent
     Intent {
@@ -720,6 +745,10 @@ enum PresetCommands {
         /// Export an official preset id instead of current workspace selection
         #[arg(long)]
         preset: Option<String>,
+
+        /// Emit machine-readable export report
+        #[arg(long)]
+        json: bool,
     },
     /// Import preset payload JSON into current workspace selection
     Import {
@@ -745,6 +774,10 @@ enum PresetCommands {
         /// Confirm rebuild execution
         #[arg(long)]
         yes_rebuild: bool,
+
+        /// Emit machine-readable dry-run report (requires --dry-run)
+        #[arg(long)]
+        json: bool,
     },
     /// Validate preset payload JSON files/directories
     Validate {
@@ -870,6 +903,28 @@ enum SecurityProfileCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn command_requests_machine_json(command: &Commands) -> bool {
+    match command {
+        Commands::Onboard { json, .. } => *json,
+        Commands::Preset { preset_command } => match preset_command {
+            PresetCommands::Apply { json, .. }
+            | PresetCommands::Export { json, .. }
+            | PresetCommands::Intent { json, .. }
+            | PresetCommands::Import { json, .. }
+            | PresetCommands::Validate { json, .. } => *json,
+            _ => false,
+        },
+        Commands::Security { security_command } => match security_command {
+            SecurityCommands::Profile { profile_command } => match profile_command {
+                SecurityProfileCommands::Set { json, .. }
+                | SecurityProfileCommands::Recommend { json, .. } => *json,
+            },
+            SecurityCommands::Show => false,
+        },
+        _ => false,
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -998,6 +1053,127 @@ async fn maybe_rebuild_selection(
     Ok(())
 }
 
+fn validate_onboard_command_mode(
+    interactive: bool,
+    channels_only: bool,
+    force: bool,
+    api_key_present: bool,
+    provider_present: bool,
+    model_present: bool,
+    memory_present: bool,
+    preset_present: bool,
+    pack_present: bool,
+    intent_present: bool,
+    security_profile_present: bool,
+    yes_security_risk: bool,
+    dry_run: bool,
+    json: bool,
+    rebuild: bool,
+    yes_rebuild: bool,
+) -> Result<()> {
+    if interactive && channels_only {
+        bail!("Use either --interactive or --channels-only, not both");
+    }
+    if intent_present && (interactive || channels_only) {
+        bail!(
+            "`--intent` is supported in quick onboard mode only (without --interactive/--channels-only)."
+        );
+    }
+    if intent_present && (preset_present || pack_present) {
+        bail!("`--intent` cannot be combined with `--preset` or `--pack`.");
+    }
+    if dry_run && (interactive || channels_only) {
+        bail!(
+            "`--dry-run` is supported in quick onboard mode only (without --interactive/--channels-only)."
+        );
+    }
+    if json && (interactive || channels_only) {
+        bail!(
+            "`--json` is supported in quick onboard mode only (without --interactive/--channels-only)."
+        );
+    }
+    if json && !dry_run {
+        bail!("`--json` requires `--dry-run` in onboard quick mode.");
+    }
+    if yes_rebuild && !rebuild {
+        bail!("`--yes-rebuild` requires `--rebuild`.");
+    }
+    if channels_only
+        && (api_key_present
+            || provider_present
+            || model_present
+            || memory_present
+            || preset_present
+            || pack_present
+            || intent_present
+            || security_profile_present
+            || yes_security_risk
+            || dry_run
+            || json
+            || rebuild
+            || yes_rebuild)
+    {
+        bail!(
+            "--channels-only does not accept quick-setup or rebuild flags (--api-key/--provider/--model/--memory/--preset/--pack/--intent/--security-profile/--yes-security-risk/--dry-run/--json/--rebuild/--yes-rebuild)."
+        );
+    }
+    if channels_only && force {
+        bail!("--channels-only does not accept --force");
+    }
+    Ok(())
+}
+
+fn evaluate_onboard_quick_risk_requirements(
+    risky_pack_ids: &[String],
+    effective_security_profile: &str,
+    yes_security_risk: bool,
+    dry_run: bool,
+) -> Result<OnboardQuickRiskAssessment> {
+    let mut assessment = OnboardQuickRiskAssessment::default();
+
+    if !risky_pack_ids.is_empty() && !yes_security_risk {
+        if dry_run {
+            assessment
+                .consent_reasons
+                .push(ConsentReasonCode::RiskyPack);
+            assessment
+                .warning_codes
+                .push(OnboardWarningCode::RiskyPackRequiresConsent);
+            assessment.warnings.push(format!(
+                "Selection includes risky packs [{}]. Applying this plan requires `--yes-security-risk`.",
+                risky_pack_ids.join(", ")
+            ));
+        } else {
+            bail!(
+                "Selection includes risky packs [{}]. Re-run with `--yes-security-risk`, or adjust preset/packs.",
+                risky_pack_ids.join(", ")
+            );
+        }
+    }
+
+    if effective_security_profile != "strict" && !yes_security_risk {
+        if dry_run {
+            assessment
+                .consent_reasons
+                .push(ConsentReasonCode::SecurityNonStrict);
+            assessment
+                .warning_codes
+                .push(OnboardWarningCode::SecurityNonStrictRequiresConsent);
+            assessment.warnings.push(format!(
+                "Security profile '{}' is non-strict. Applying this plan requires `--yes-security-risk`.",
+                effective_security_profile
+            ));
+        } else {
+            bail!(
+                "Security profile '{}' requires explicit confirmation in quick mode. Re-run with `--yes-security-risk`.",
+                effective_security_profile
+            );
+        }
+    }
+
+    Ok(assessment)
+}
+
 fn print_security_profile_summary(config: &Config) {
     let label = onboard::security_profile_label(&config.autonomy);
     println!("Security profile: {label}");
@@ -1039,16 +1215,24 @@ struct SecurityFieldChange {
 
 #[derive(Debug, Serialize)]
 struct SecurityProfileChangeReport {
+    schema_version: u32,
+    report_type: String,
     current: SecurityProfileSnapshot,
     target: SecurityProfileSnapshot,
     changes: Vec<SecurityFieldChange>,
     requires_explicit_risk_consent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    risk_consent_reasons: Vec<SecurityRiskConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    risk_consent_reason_keys: Vec<String>,
     dry_run: bool,
     rollback_command: String,
 }
 
 #[derive(Debug, Serialize)]
 struct SecurityProfileIntentRecommendationReport {
+    schema_version: u32,
+    report_type: String,
     intent: String,
     current_profile: SecurityProfileSnapshot,
     recommended_profile: onboard::SecurityProfileRecommendation,
@@ -1061,7 +1245,225 @@ struct SecurityProfileIntentRecommendationReport {
     capability_sources: Vec<String>,
     plan_confidence: f32,
     plan_reasons: Vec<String>,
+    apply_requires_explicit_risk_consent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reasons: Vec<ConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reason_keys: Vec<String>,
     apply_command: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ConsentReasonCode {
+    RiskyPack,
+    Rebuild,
+    SecurityNonStrict,
+}
+
+impl ConsentReasonCode {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::RiskyPack => "risky_pack",
+            Self::Rebuild => "rebuild",
+            Self::SecurityNonStrict => "security_non_strict",
+        }
+    }
+
+    const fn i18n_key(self) -> &'static str {
+        match self {
+            Self::RiskyPack => "consent.reason.risky_pack",
+            Self::Rebuild => "consent.reason.rebuild",
+            Self::SecurityNonStrict => "consent.reason.security_non_strict",
+        }
+    }
+}
+
+impl std::fmt::Display for ConsentReasonCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum SecurityRiskConsentReasonCode {
+    NonStrictProfile,
+    NonCliAutoApproval,
+}
+
+impl SecurityRiskConsentReasonCode {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::NonStrictProfile => "non_strict_profile",
+            Self::NonCliAutoApproval => "non_cli_auto_approval",
+        }
+    }
+
+    const fn i18n_key(self) -> &'static str {
+        match self {
+            Self::NonStrictProfile => "security.risk_reason.non_strict_profile",
+            Self::NonCliAutoApproval => "security.risk_reason.non_cli_auto_approval",
+        }
+    }
+}
+
+impl std::fmt::Display for SecurityRiskConsentReasonCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum OnboardWarningCode {
+    RiskyPackRequiresConsent,
+    SecurityNonStrictRequiresConsent,
+}
+
+impl OnboardWarningCode {
+    const fn i18n_key(self) -> &'static str {
+        match self {
+            Self::RiskyPackRequiresConsent => "onboard.warning.risky_pack_requires_consent",
+            Self::SecurityNonStrictRequiresConsent => {
+                "onboard.warning.security_non_strict_requires_consent"
+            }
+        }
+    }
+}
+
+const ONBOARD_QUICK_DRY_RUN_SCHEMA_VERSION: u32 = 1;
+const ONBOARD_QUICK_DRY_RUN_REPORT_TYPE: &str = "onboard.quick_dry_run";
+const PRESET_INTENT_ORCHESTRATION_SCHEMA_VERSION: u32 = 1;
+const PRESET_INTENT_ORCHESTRATION_REPORT_TYPE: &str = "preset.intent_orchestration";
+const PRESET_EXPORT_REPORT_SCHEMA_VERSION: u32 = 1;
+const PRESET_EXPORT_REPORT_TYPE: &str = "preset.export";
+const PRESET_APPLY_DRY_RUN_SCHEMA_VERSION: u32 = 1;
+const PRESET_APPLY_DRY_RUN_REPORT_TYPE: &str = "preset.apply_dry_run";
+const PRESET_IMPORT_DRY_RUN_SCHEMA_VERSION: u32 = 1;
+const PRESET_IMPORT_DRY_RUN_REPORT_TYPE: &str = "preset.import_dry_run";
+const SECURITY_PROFILE_CHANGE_SCHEMA_VERSION: u32 = 1;
+const SECURITY_PROFILE_CHANGE_REPORT_TYPE: &str = "security.profile_change";
+const SECURITY_PROFILE_RECOMMEND_SCHEMA_VERSION: u32 = 1;
+const SECURITY_PROFILE_RECOMMEND_REPORT_TYPE: &str = "security.profile_recommendation";
+
+#[derive(Debug, Serialize)]
+struct OnboardIntentPlanPreview {
+    intent: String,
+    preset: String,
+    add_packs: Vec<String>,
+    remove_packs: Vec<String>,
+    confidence: f32,
+    risky_packs: Vec<String>,
+    recommended_security_profile_id: String,
+    recommended_security_profile_label: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OnboardRebuildPreview {
+    command: String,
+    working_directory: String,
+    would_execute: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PresetApplyDryRunReport {
+    schema_version: u32,
+    report_type: String,
+    previous_selection: Option<presets::WorkspacePresetSelection>,
+    planned_selection: presets::WorkspacePresetSelection,
+    selection_diff: presets::SelectionDiff,
+    risky_packs: Vec<String>,
+    apply_requires_explicit_consent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reasons: Vec<ConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reason_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
+    rebuild_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rebuild_preview: Option<OnboardRebuildPreview>,
+    workspace_written: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PresetImportDryRunReport {
+    schema_version: u32,
+    report_type: String,
+    import_mode: String,
+    source_path: String,
+    previous_selection: Option<presets::WorkspacePresetSelection>,
+    planned_selection: presets::WorkspacePresetSelection,
+    selection_diff: presets::SelectionDiff,
+    risky_packs: Vec<String>,
+    apply_requires_explicit_consent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reasons: Vec<ConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    apply_consent_reason_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
+    rebuild_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rebuild_preview: Option<OnboardRebuildPreview>,
+    workspace_written: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PresetExportSourceKind {
+    OfficialPreset,
+    WorkspaceSelection,
+    DefaultSelection,
+}
+
+#[derive(Debug, Serialize)]
+struct PresetExportReport {
+    schema_version: u32,
+    report_type: String,
+    source_kind: PresetExportSourceKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requested_preset: Option<String>,
+    selection: presets::WorkspacePresetSelection,
+    target_path: String,
+    bytes_written: usize,
+    payload_sha256: String,
+    write_performed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct OnboardQuickDryRunReport {
+    schema_version: u32,
+    report_type: String,
+    mode: String,
+    intent_plan: Option<OnboardIntentPlanPreview>,
+    planned_selection: presets::WorkspacePresetSelection,
+    risky_packs: Vec<String>,
+    security_profile: String,
+    requires_explicit_consent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    consent_reasons: Vec<ConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    consent_reason_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warning_codes: Vec<OnboardWarningCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warning_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
+    rebuild_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rebuild_preview: Option<OnboardRebuildPreview>,
+    config_written: bool,
+    workspace_written: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct OnboardQuickRiskAssessment {
+    consent_reasons: Vec<ConsentReasonCode>,
+    warning_codes: Vec<OnboardWarningCode>,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1071,11 +1473,15 @@ struct GeneratedNextCommand {
     command: String,
     requires_explicit_consent: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    consent_reasons: Vec<String>,
+    consent_reasons: Vec<ConsentReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    consent_reason_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct PresetIntentOrchestrationReport {
+    schema_version: u32,
+    report_type: String,
     intent: String,
     capability_sources: Vec<String>,
     plan: presets::IntentPlan,
@@ -1089,6 +1495,57 @@ struct PresetIntentOrchestrationReport {
 fn shell_quote(raw: &str) -> String {
     let escaped = raw.replace('\'', "'\"'\"'");
     format!("'{escaped}'")
+}
+
+fn format_consent_reasons(reasons: &[ConsentReasonCode]) -> String {
+    reasons
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn consent_reason_keys(reasons: &[ConsentReasonCode]) -> Vec<String> {
+    reasons
+        .iter()
+        .map(|reason| reason.i18n_key().to_string())
+        .collect()
+}
+
+fn onboard_warning_keys(codes: &[OnboardWarningCode]) -> Vec<String> {
+    codes
+        .iter()
+        .map(|code| code.i18n_key().to_string())
+        .collect()
+}
+
+fn format_security_risk_consent_reasons(reasons: &[SecurityRiskConsentReasonCode]) -> String {
+    reasons
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn security_risk_consent_reason_keys(reasons: &[SecurityRiskConsentReasonCode]) -> Vec<String> {
+    reasons
+        .iter()
+        .map(|reason| reason.i18n_key().to_string())
+        .collect()
+}
+
+fn build_security_risk_consent_reasons(
+    non_strict_profile: bool,
+    enabling_non_cli_auto_approval: bool,
+) -> Vec<SecurityRiskConsentReasonCode> {
+    let mut reasons = Vec::new();
+    if non_strict_profile {
+        reasons.push(SecurityRiskConsentReasonCode::NonStrictProfile);
+    }
+    if enabling_non_cli_auto_approval {
+        reasons.push(SecurityRiskConsentReasonCode::NonCliAutoApproval);
+    }
+    reasons
 }
 
 fn build_preset_intent_command(
@@ -1142,28 +1599,78 @@ fn build_security_apply_command(recommendation: &onboard::SecurityProfileRecomme
     }
 }
 
+fn build_rebuild_preview(
+    selection: &presets::WorkspacePresetSelection,
+    rebuild: bool,
+) -> Result<Option<OnboardRebuildPreview>> {
+    if !rebuild {
+        return Ok(None);
+    }
+
+    let cwd = std::env::current_dir()?;
+    let plan = presets::rebuild_plan_for_selection(selection, &cwd)?;
+    Ok(Some(OnboardRebuildPreview {
+        command: format!("cargo {}", plan.args.join(" ")),
+        working_directory: plan.manifest_dir.display().to_string(),
+        would_execute: false,
+    }))
+}
+
+fn build_preset_execution_consent_reasons(
+    risky_packs: &[String],
+    yes_risky: bool,
+    rebuild: bool,
+    yes_rebuild: bool,
+) -> Vec<ConsentReasonCode> {
+    let mut reasons = Vec::new();
+    if !risky_packs.is_empty() && !yes_risky {
+        reasons.push(ConsentReasonCode::RiskyPack);
+    }
+    if rebuild && !yes_rebuild {
+        reasons.push(ConsentReasonCode::Rebuild);
+    }
+    reasons
+}
+
+fn build_preset_execution_warnings(
+    risky_packs: &[String],
+    rebuild: bool,
+    execution_consent_reasons: &[ConsentReasonCode],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if execution_consent_reasons.contains(&ConsentReasonCode::RiskyPack) {
+        warnings.push(format!(
+            "Selection includes risky packs [{}]. Applying this plan requires `--yes-risky`.",
+            risky_packs.join(", ")
+        ));
+    }
+    if execution_consent_reasons.contains(&ConsentReasonCode::Rebuild) && rebuild {
+        warnings.push(
+            "Rebuild was requested. Executing this plan requires `--yes-rebuild`.".to_string(),
+        );
+    }
+    warnings
+}
+
 fn build_preset_apply_consent_reasons(
     risky_packs: &[String],
     dry_run: bool,
     yes_risky: bool,
     rebuild: bool,
     yes_rebuild: bool,
-) -> Vec<String> {
-    let mut reasons = Vec::new();
-    if !risky_packs.is_empty() && !dry_run && !yes_risky {
-        reasons.push("risky_pack".to_string());
+) -> Vec<ConsentReasonCode> {
+    if dry_run {
+        Vec::new()
+    } else {
+        build_preset_execution_consent_reasons(risky_packs, yes_risky, rebuild, yes_rebuild)
     }
-    if rebuild && !dry_run && !yes_rebuild {
-        reasons.push("rebuild".to_string());
-    }
-    reasons
 }
 
 fn build_security_apply_consent_reasons(
     recommendation: &onboard::SecurityProfileRecommendation,
-) -> Vec<String> {
+) -> Vec<ConsentReasonCode> {
     if recommendation.requires_explicit_consent {
-        vec!["security_non_strict".to_string()]
+        vec![ConsentReasonCode::SecurityNonStrict]
     } else {
         Vec::new()
     }
@@ -1198,7 +1705,7 @@ fn build_orchestration_shell_script(report: &PresetIntentOrchestrationReport) ->
             let reason_label = if command.consent_reasons.is_empty() {
                 "manual_confirmation".to_string()
             } else {
-                command.consent_reasons.join(",")
+                format_consent_reasons(&command.consent_reasons)
             };
             lines.push(format!(
                 "if confirm \"Run {} (reasons: {})?\"; then",
@@ -1292,7 +1799,7 @@ fn build_security_profile_change_report(
     current: &config::AutonomyConfig,
     target: &config::AutonomyConfig,
     target_profile_id: &str,
-    requires_explicit_risk_consent: bool,
+    risk_consent_reasons: &[SecurityRiskConsentReasonCode],
     dry_run: bool,
 ) -> SecurityProfileChangeReport {
     let current_snapshot = build_security_profile_snapshot(current, None);
@@ -1367,10 +1874,14 @@ fn build_security_profile_change_report(
     }
 
     SecurityProfileChangeReport {
+        schema_version: SECURITY_PROFILE_CHANGE_SCHEMA_VERSION,
+        report_type: SECURITY_PROFILE_CHANGE_REPORT_TYPE.to_string(),
         current: current_snapshot,
         target: target_snapshot,
         changes,
-        requires_explicit_risk_consent,
+        requires_explicit_risk_consent: !risk_consent_reasons.is_empty(),
+        risk_consent_reasons: risk_consent_reasons.to_vec(),
+        risk_consent_reason_keys: security_risk_consent_reason_keys(risk_consent_reasons),
         dry_run,
         rollback_command: "zeroclaw security profile set strict".to_string(),
     }
@@ -1407,6 +1918,14 @@ fn print_security_profile_change_report(report: &SecurityProfileChangeReport) {
             println!("  {}: {} -> {}", change.field, change.from, change.to);
         }
     }
+    if report.requires_explicit_risk_consent {
+        println!(
+            "- explicit risk consent: yes ({})",
+            format_security_risk_consent_reasons(&report.risk_consent_reasons)
+        );
+    } else {
+        println!("- explicit risk consent: no");
+    }
 }
 
 async fn handle_security_command(command: SecurityCommands, config: &mut Config) -> Result<()> {
@@ -1433,13 +1952,16 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
 
                 let enabling_non_cli_auto_approval =
                     !current.allow_non_cli_auto_approval && next.allow_non_cli_auto_approval;
-                let requires_explicit_risk_consent =
-                    level.is_non_strict() || enabling_non_cli_auto_approval;
+                let risk_consent_reasons = build_security_risk_consent_reasons(
+                    level.is_non_strict(),
+                    enabling_non_cli_auto_approval,
+                );
+                let requires_explicit_risk_consent = !risk_consent_reasons.is_empty();
                 let report = build_security_profile_change_report(
                     &current,
                     &next,
                     profile_id,
-                    requires_explicit_risk_consent,
+                    &risk_consent_reasons,
                     dry_run,
                 );
 
@@ -1453,7 +1975,11 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
                     let payload = serde_json::to_string_pretty(&report)?;
                     std::fs::write(&path, payload)
                         .with_context(|| format!("Failed to write {}", path.display()))?;
-                    println!("Exported security diff: {}", path.display());
+                    if json {
+                        eprintln!("Exported security diff: {}", path.display());
+                    } else {
+                        println!("Exported security diff: {}", path.display());
+                    }
                 }
 
                 if requires_explicit_risk_consent && !yes_risk && !dry_run {
@@ -1474,15 +2000,19 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
                 }
 
                 if dry_run {
-                    println!("Security profile dry-run: no changes written.");
-                    println!("Rollback command: {}", report.rollback_command);
+                    if !json {
+                        println!("Security profile dry-run: no changes written.");
+                        println!("Rollback command: {}", report.rollback_command);
+                    }
                     return Ok(());
                 }
 
                 config.autonomy = next;
                 config.save().await?;
-                println!("Saved config: {}", config.config_path.display());
-                println!("Rollback command: {}", report.rollback_command);
+                if !json {
+                    println!("Saved config: {}", config.config_path.display());
+                    println!("Rollback command: {}", report.rollback_command);
+                }
                 Ok(())
             }
             SecurityProfileCommands::Recommend {
@@ -1512,9 +2042,12 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
                 let risky_packs = presets::risky_pack_ids(&planned_selection);
                 let recommendation =
                     onboard::recommend_security_profile(Some(&intent), &planned_selection.packs);
+                let apply_consent_reasons = build_security_apply_consent_reasons(&recommendation);
                 let apply_command = build_security_apply_command(&recommendation);
 
                 let report = SecurityProfileIntentRecommendationReport {
+                    schema_version: SECURITY_PROFILE_RECOMMEND_SCHEMA_VERSION,
+                    report_type: SECURITY_PROFILE_RECOMMEND_REPORT_TYPE.to_string(),
                     intent: intent.clone(),
                     current_profile: build_security_profile_snapshot(&config.autonomy, None),
                     recommended_profile: recommendation,
@@ -1527,6 +2060,9 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
                     capability_sources: resolved_capabilities.sources,
                     plan_confidence: plan.confidence,
                     plan_reasons: plan.reasons,
+                    apply_requires_explicit_risk_consent: !apply_consent_reasons.is_empty(),
+                    apply_consent_reason_keys: consent_reason_keys(&apply_consent_reasons),
+                    apply_consent_reasons,
                     apply_command,
                 };
 
@@ -1575,6 +2111,20 @@ async fn handle_security_command(command: SecurityCommands, config: &mut Config)
                     println!(
                         "- capability sources: {}",
                         report.capability_sources.join(" -> ")
+                    );
+                }
+                println!(
+                    "- apply requires explicit risk consent: {}",
+                    if report.apply_requires_explicit_risk_consent {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
+                if !report.apply_consent_reasons.is_empty() {
+                    println!(
+                        "- apply consent reasons: {}",
+                        format_consent_reasons(&report.apply_consent_reasons)
                     );
                 }
                 println!();
@@ -1652,7 +2202,12 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
             yes_risky,
             rebuild,
             yes_rebuild,
+            json,
         } => {
+            if json && !dry_run {
+                bail!("`preset apply --json` requires `--dry-run`.");
+            }
+
             let before = presets::load_workspace_selection(config)?;
             let base = if let Some(preset_id) = preset {
                 presets::from_preset_id(&preset_id)?
@@ -1664,10 +2219,35 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
             let after = presets::compose_selection(base, &pack, &remove_pack)?;
             let diff = presets::selection_diff(before.as_ref(), &after);
 
+            let risky = presets::risky_pack_ids(&after);
+            let execution_consent_reasons =
+                build_preset_execution_consent_reasons(&risky, yes_risky, rebuild, yes_rebuild);
+            let execution_warnings =
+                build_preset_execution_warnings(&risky, rebuild, &execution_consent_reasons);
+
+            if json {
+                let report = PresetApplyDryRunReport {
+                    schema_version: PRESET_APPLY_DRY_RUN_SCHEMA_VERSION,
+                    report_type: PRESET_APPLY_DRY_RUN_REPORT_TYPE.to_string(),
+                    previous_selection: before.clone(),
+                    planned_selection: after.clone(),
+                    selection_diff: diff,
+                    risky_packs: risky.clone(),
+                    apply_requires_explicit_consent: !execution_consent_reasons.is_empty(),
+                    apply_consent_reason_keys: consent_reason_keys(&execution_consent_reasons),
+                    apply_consent_reasons: execution_consent_reasons,
+                    warnings: execution_warnings,
+                    rebuild_requested: rebuild,
+                    rebuild_preview: build_rebuild_preview(&after, rebuild)?,
+                    workspace_written: false,
+                };
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+
             println!("Preset plan:");
             print_selection_diff(&diff);
 
-            let risky = presets::risky_pack_ids(&after);
             if !risky.is_empty() && !yes_risky && !dry_run {
                 bail!(
                     "Selection includes risky packs [{}]. Re-run with `--yes-risky`, or use `--dry-run`.",
@@ -1759,6 +2339,7 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
                     command: preview_apply_command.clone(),
                     requires_explicit_consent: false,
                     consent_reasons: Vec::new(),
+                    consent_reason_keys: Vec::new(),
                 },
                 GeneratedNextCommand {
                     id: "preset.apply".to_string(),
@@ -1766,6 +2347,7 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
                         .to_string(),
                     command: apply_command,
                     requires_explicit_consent: !preset_apply_consent_reasons.is_empty(),
+                    consent_reason_keys: consent_reason_keys(&preset_apply_consent_reasons),
                     consent_reasons: preset_apply_consent_reasons,
                 },
                 GeneratedNextCommand {
@@ -1775,6 +2357,7 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
                             .to_string(),
                     command: security_apply_command.clone(),
                     requires_explicit_consent: !security_apply_consent_reasons.is_empty(),
+                    consent_reason_keys: consent_reason_keys(&security_apply_consent_reasons),
                     consent_reasons: security_apply_consent_reasons,
                 },
             ];
@@ -1783,6 +2366,8 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
             }
 
             let orchestration_report = PresetIntentOrchestrationReport {
+                schema_version: PRESET_INTENT_ORCHESTRATION_SCHEMA_VERSION,
+                report_type: PRESET_INTENT_ORCHESTRATION_REPORT_TYPE.to_string(),
                 intent: text.clone(),
                 capability_sources: resolved_capabilities.sources.clone(),
                 plan: plan.clone(),
@@ -1897,7 +2482,10 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
                         }
                     );
                     if !entry.consent_reasons.is_empty() {
-                        println!("  consent reasons: {}", entry.consent_reasons.join(", "));
+                        println!(
+                            "  consent reasons: {}",
+                            format_consent_reasons(&entry.consent_reasons)
+                        );
                     }
                     println!("  {}", entry.command);
                 }
@@ -1929,16 +2517,48 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
             println!("  {security_apply_command}");
             Ok(())
         }
-        PresetCommands::Export { path, preset } => {
-            let selection = if let Some(preset_id) = preset {
-                presets::from_preset_id(&preset_id)?
+        PresetCommands::Export { path, preset, json } => {
+            let (selection, source_kind, requested_preset) = if let Some(preset_id) = preset {
+                (
+                    presets::from_preset_id(&preset_id)?,
+                    PresetExportSourceKind::OfficialPreset,
+                    Some(preset_id),
+                )
             } else if let Some(current) = presets::load_workspace_selection(config)? {
-                current
+                (
+                    current,
+                    PresetExportSourceKind::WorkspaceSelection,
+                    None::<String>,
+                )
             } else {
-                presets::default_selection()?
+                (
+                    presets::default_selection()?,
+                    PresetExportSourceKind::DefaultSelection,
+                    None::<String>,
+                )
             };
             let document = presets::selection_to_document(&selection);
             presets::export_document_to_path(&path, &document)?;
+
+            if json {
+                let payload = std::fs::read(&path)
+                    .with_context(|| format!("Failed to read {}", path.display()))?;
+                let payload_sha256 = format!("{:x}", Sha256::digest(&payload));
+                let report = PresetExportReport {
+                    schema_version: PRESET_EXPORT_REPORT_SCHEMA_VERSION,
+                    report_type: PRESET_EXPORT_REPORT_TYPE.to_string(),
+                    source_kind,
+                    requested_preset,
+                    selection,
+                    target_path: path.display().to_string(),
+                    bytes_written: payload.len(),
+                    payload_sha256,
+                    write_performed: true,
+                };
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+
             println!("Exported preset payload to {}", path.display());
             Ok(())
         }
@@ -1949,15 +2569,45 @@ async fn handle_preset_command(command: PresetCommands, config: &Config) -> Resu
             yes_risky,
             rebuild,
             yes_rebuild,
+            json,
         } => {
-            let result = presets::import_selection_from_path(config, &path, mode)?;
-            println!("Import mode: {}", result.mode);
-            print_selection_diff(&presets::selection_diff(
-                result.before.as_ref(),
-                &result.after,
-            ));
+            if json && !dry_run {
+                bail!("`preset import --json` requires `--dry-run`.");
+            }
 
+            let result = presets::import_selection_from_path(config, &path, mode)?;
+            let diff = presets::selection_diff(result.before.as_ref(), &result.after);
             let risky = presets::risky_pack_ids(&result.after);
+            let execution_consent_reasons =
+                build_preset_execution_consent_reasons(&risky, yes_risky, rebuild, yes_rebuild);
+            let execution_warnings =
+                build_preset_execution_warnings(&risky, rebuild, &execution_consent_reasons);
+
+            if json {
+                let report = PresetImportDryRunReport {
+                    schema_version: PRESET_IMPORT_DRY_RUN_SCHEMA_VERSION,
+                    report_type: PRESET_IMPORT_DRY_RUN_REPORT_TYPE.to_string(),
+                    import_mode: result.mode.to_string(),
+                    source_path: path.display().to_string(),
+                    previous_selection: result.before.clone(),
+                    planned_selection: result.after.clone(),
+                    selection_diff: diff,
+                    risky_packs: risky,
+                    apply_requires_explicit_consent: !execution_consent_reasons.is_empty(),
+                    apply_consent_reason_keys: consent_reason_keys(&execution_consent_reasons),
+                    apply_consent_reasons: execution_consent_reasons,
+                    warnings: execution_warnings,
+                    rebuild_requested: rebuild,
+                    rebuild_preview: build_rebuild_preview(&result.after, rebuild)?,
+                    workspace_written: false,
+                };
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+
+            println!("Import mode: {}", result.mode);
+            print_selection_diff(&diff);
+
             if !risky.is_empty() && !yes_risky && !dry_run {
                 bail!(
                     "Selection includes risky packs [{}]. Re-run with `--yes-risky`, or use `--dry-run`.",
@@ -2060,14 +2710,21 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Initialize logging - respects RUST_LOG env var, defaults to INFO
-    let subscriber = fmt::Subscriber::builder()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .finish();
+    let machine_json_mode = command_requests_machine_json(&cli.command);
 
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    if !machine_json_mode {
+        // Initialize logging - respects RUST_LOG env var, defaults to INFO.
+        // Logs stay on stderr to keep stdout user/machine payloads clean.
+        let subscriber = fmt::Subscriber::builder()
+            .with_env_filter(
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            )
+            .with_writer(std::io::stderr)
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+    }
 
     // Onboard runs quick setup by default, or the interactive wizard with --interactive.
     // The onboard wizard uses reqwest::blocking internally, which creates its own
@@ -2083,8 +2740,13 @@ async fn main() -> Result<()> {
         memory,
         preset,
         pack,
+        intent,
         security_profile,
         yes_security_risk,
+        dry_run,
+        json,
+        rebuild,
+        yes_rebuild,
     } = &cli.command
     {
         let interactive = *interactive;
@@ -2096,34 +2758,239 @@ async fn main() -> Result<()> {
         let memory = memory.clone();
         let preset = preset.clone();
         let pack = pack.clone();
+        let intent = intent.clone();
         let security_profile = *security_profile;
         let yes_security_risk = *yes_security_risk;
+        let dry_run = *dry_run;
+        let json = *json;
+        let rebuild = *rebuild;
+        let yes_rebuild = *yes_rebuild;
 
-        if interactive && channels_only {
-            bail!("Use either --interactive or --channels-only, not both");
-        }
-        if channels_only
-            && (api_key.is_some() || provider.is_some() || model.is_some() || memory.is_some())
-        {
-            bail!("--channels-only does not accept --api-key, --provider, --model, or --memory");
-        }
-        if channels_only && force {
-            bail!("--channels-only does not accept --force");
-        }
+        validate_onboard_command_mode(
+            interactive,
+            channels_only,
+            force,
+            api_key.is_some(),
+            provider.is_some(),
+            model.is_some(),
+            memory.is_some(),
+            preset.is_some(),
+            !pack.is_empty(),
+            intent.is_some(),
+            security_profile.is_some(),
+            yes_security_risk,
+            dry_run,
+            json,
+            rebuild,
+            yes_rebuild,
+        )?;
         let config = if channels_only {
             onboard::run_channels_repair_wizard().await
         } else if interactive {
             onboard::run_wizard(force).await
         } else {
+            let mut resolved_preset = preset.clone();
+            let mut resolved_pack = pack.clone();
+            let mut resolved_remove_pack: Vec<String> = Vec::new();
+            let mut intent_preview: Option<OnboardIntentPlanPreview> = None;
+            let mut resolved_security_profile =
+                security_profile.map(|value| value.as_profile_id().to_string());
+
+            if let Some(intent_text) = intent.clone() {
+                let minimal_base = presets::from_preset_id("minimal")?;
+                let plan = presets::plan_from_intent(&intent_text, Some(&minimal_base));
+                let planned_selection = presets::selection_from_plan(&plan, Some(&minimal_base))?;
+                let planned_preset = onboard::preset_by_id(&planned_selection.preset_id)
+                    .with_context(|| {
+                        format!(
+                            "Intent planner produced unknown preset '{}'",
+                            planned_selection.preset_id
+                        )
+                    })?;
+
+                resolved_preset = Some(planned_selection.preset_id.clone());
+                resolved_pack = planned_selection
+                    .packs
+                    .iter()
+                    .filter(|pack_id| {
+                        !planned_preset
+                            .packs
+                            .iter()
+                            .any(|base_pack| *base_pack == pack_id.as_str())
+                    })
+                    .cloned()
+                    .collect();
+                resolved_remove_pack = planned_preset
+                    .packs
+                    .iter()
+                    .filter(|base_pack| {
+                        !planned_selection
+                            .packs
+                            .iter()
+                            .any(|selected| selected == *base_pack)
+                    })
+                    .map(|pack| (*pack).to_string())
+                    .collect();
+
+                let risky = presets::risky_pack_ids(&planned_selection);
+                let recommendation = onboard::recommend_security_profile(
+                    Some(&intent_text),
+                    &planned_selection.packs,
+                );
+                intent_preview = Some(OnboardIntentPlanPreview {
+                    intent: intent_text.clone(),
+                    preset: planned_selection.preset_id.clone(),
+                    add_packs: plan.add_packs.clone(),
+                    remove_packs: plan.remove_packs.clone(),
+                    confidence: plan.confidence,
+                    risky_packs: risky.clone(),
+                    recommended_security_profile_id: recommendation.profile_id.clone(),
+                    recommended_security_profile_label: recommendation.label.clone(),
+                });
+
+                if !json {
+                    println!("Intent plan:");
+                    println!("  intent: {intent_text}");
+                    println!("  preset: {}", planned_selection.preset_id);
+                    if !plan.add_packs.is_empty() {
+                        println!("  add: {}", plan.add_packs.join(", "));
+                    }
+                    if !plan.remove_packs.is_empty() {
+                        println!("  remove: {}", plan.remove_packs.join(", "));
+                    }
+                    println!("  confidence: {:.2}", plan.confidence);
+                    if !risky.is_empty() {
+                        println!("  risky packs: {}", risky.join(", "));
+                    }
+                    println!(
+                        "  recommended security profile: {} ({})",
+                        recommendation.profile_id, recommendation.label
+                    );
+                }
+
+                if resolved_security_profile.is_none() {
+                    resolved_security_profile = Some(recommendation.profile_id.clone());
+                }
+            }
+
+            let resolved_preset_id = resolved_preset
+                .clone()
+                .unwrap_or_else(|| "minimal".to_string());
+            let base_selection = presets::from_preset_id(&resolved_preset_id)?;
+            let planned_selection =
+                presets::compose_selection(base_selection, &resolved_pack, &resolved_remove_pack)?;
+            let risky = presets::risky_pack_ids(&planned_selection);
+            let effective_security_profile = resolved_security_profile
+                .clone()
+                .unwrap_or_else(|| "strict".to_string());
+            let risk_assessment = evaluate_onboard_quick_risk_requirements(
+                &risky,
+                &effective_security_profile,
+                yes_security_risk,
+                dry_run,
+            )?;
+
+            if dry_run {
+                if json {
+                    let rebuild_preview = build_rebuild_preview(&planned_selection, rebuild)?;
+
+                    let report = OnboardQuickDryRunReport {
+                        schema_version: ONBOARD_QUICK_DRY_RUN_SCHEMA_VERSION,
+                        report_type: ONBOARD_QUICK_DRY_RUN_REPORT_TYPE.to_string(),
+                        mode: "quick_dry_run".to_string(),
+                        intent_plan: intent_preview,
+                        planned_selection: planned_selection.clone(),
+                        risky_packs: risky.clone(),
+                        security_profile: effective_security_profile.clone(),
+                        requires_explicit_consent: !risk_assessment.consent_reasons.is_empty(),
+                        consent_reasons: risk_assessment.consent_reasons.clone(),
+                        consent_reason_keys: consent_reason_keys(&risk_assessment.consent_reasons),
+                        warning_codes: risk_assessment.warning_codes.clone(),
+                        warning_keys: onboard_warning_keys(&risk_assessment.warning_codes),
+                        warnings: risk_assessment.warnings.clone(),
+                        rebuild_requested: rebuild,
+                        rebuild_preview,
+                        config_written: false,
+                        workspace_written: false,
+                    };
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("Onboard quick dry-run (no files written):");
+                    println!("  preset: {}", planned_selection.preset_id);
+                    println!("  packs: {}", planned_selection.packs.join(", "));
+                    if !planned_selection.added_packs.is_empty() {
+                        println!(
+                            "  added packs: {}",
+                            planned_selection.added_packs.join(", ")
+                        );
+                    }
+                    if !risky.is_empty() {
+                        println!("  risky packs: {}", risky.join(", "));
+                    }
+                    println!("  security profile: {}", effective_security_profile);
+                    for warning in &risk_assessment.warnings {
+                        println!("  warning: {warning}");
+                    }
+                    if rebuild {
+                        maybe_rebuild_selection(&planned_selection, true, true, true).await?;
+                    }
+                }
+                return Ok(());
+            }
+
             onboard::run_quick_setup(
                 api_key.as_deref(),
                 provider.as_deref(),
                 model.as_deref(),
                 memory.as_deref(),
+                resolved_preset.as_deref(),
+                &resolved_pack,
+                &resolved_remove_pack,
+                resolved_security_profile.as_deref(),
+                yes_security_risk,
                 force,
             )
             .await
         }?;
+        let mut run_rebuild = rebuild;
+        let mut rebuild_approved = yes_rebuild;
+
+        if !channels_only
+            && interactive
+            && std::io::stdin().is_terminal()
+            && std::io::stdout().is_terminal()
+        {
+            let has_selection = presets::load_workspace_selection(&config)?.is_some();
+            if run_rebuild && !rebuild_approved {
+                let confirmed = Confirm::new()
+                    .with_prompt("Run rebuild now to compile selected preset/packs?")
+                    .default(true)
+                    .interact()?;
+                if confirmed {
+                    rebuild_approved = true;
+                } else {
+                    run_rebuild = false;
+                }
+            } else if !run_rebuild && has_selection {
+                let run_now = Confirm::new()
+                    .with_prompt("Onboarding complete. Rebuild now for selected preset/packs?")
+                    .default(false)
+                    .interact()?;
+                if run_now {
+                    run_rebuild = true;
+                    rebuild_approved = true;
+                }
+            }
+        }
+
+        if run_rebuild {
+            let selection = if let Some(current) = presets::load_workspace_selection(&config)? {
+                current
+            } else {
+                presets::default_selection()?
+            };
+            maybe_rebuild_selection(&selection, true, false, rebuild_approved).await?;
+        }
         // Auto-start channels if user said yes during wizard
         if std::env::var("ZEROCLAW_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
             channels::start_channels(config).await?;
@@ -3339,6 +4206,573 @@ mod tests {
             }
             other => panic!("expected onboard command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_preset_pack_security_and_rebuild_flags() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--preset",
+            "automation",
+            "--pack",
+            "rag-pdf",
+            "--security-profile",
+            "flexible",
+            "--yes-security-risk",
+            "--rebuild",
+            "--yes-rebuild",
+        ])
+        .expect("onboard preset/pack/security/rebuild invocation should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                preset,
+                pack,
+                security_profile,
+                yes_security_risk,
+                rebuild,
+                yes_rebuild,
+                ..
+            } => {
+                assert_eq!(preset.as_deref(), Some("automation"));
+                assert_eq!(pack, vec!["rag-pdf".to_string()]);
+                assert_eq!(security_profile, Some(SecurityProfileArg::Flexible));
+                assert!(yes_security_risk);
+                assert!(rebuild);
+                assert!(yes_rebuild);
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_intent_flag() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--intent",
+            "need browser automation but no update",
+            "--provider",
+            "openrouter",
+        ])
+        .expect("onboard intent invocation should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                intent,
+                preset,
+                pack,
+                ..
+            } => {
+                assert_eq!(
+                    intent.as_deref(),
+                    Some("need browser automation but no update")
+                );
+                assert!(preset.is_none());
+                assert!(pack.is_empty());
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_dry_run_with_intent_and_rebuild() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--intent",
+            "need browser automation but no update",
+            "--dry-run",
+            "--rebuild",
+        ])
+        .expect("onboard dry-run intent invocation should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                intent,
+                dry_run,
+                rebuild,
+                yes_rebuild,
+                ..
+            } => {
+                assert_eq!(
+                    intent.as_deref(),
+                    Some("need browser automation but no update")
+                );
+                assert!(dry_run);
+                assert!(rebuild);
+                assert!(!yes_rebuild);
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_json_in_dry_run_mode() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--intent",
+            "need browser automation but no update",
+            "--dry-run",
+            "--json",
+        ])
+        .expect("onboard dry-run json invocation should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                dry_run,
+                json,
+                intent,
+                ..
+            } => {
+                assert!(dry_run);
+                assert!(json);
+                assert_eq!(
+                    intent.as_deref(),
+                    Some("need browser automation but no update")
+                );
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn machine_json_mode_detects_supported_json_commands() {
+        let cases: Vec<(Vec<&str>, bool)> = vec![
+            (
+                vec![
+                    "zeroclaw",
+                    "onboard",
+                    "--intent",
+                    "need browser automation",
+                    "--dry-run",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "intent",
+                    "need unattended browser automation",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec!["zeroclaw", "preset", "apply", "--dry-run", "--json"],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "import",
+                    "presets/community/template.preset.json",
+                    "--dry-run",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "export",
+                    "/tmp/zeroclaw-export.json",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "validate",
+                    "presets/official/minimal.toml",
+                    "--json",
+                ],
+                true,
+            ),
+            (vec!["zeroclaw", "preset", "apply", "--dry-run"], false),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "import",
+                    "presets/community/template.preset.json",
+                    "--dry-run",
+                ],
+                false,
+            ),
+            (
+                vec!["zeroclaw", "preset", "export", "/tmp/zeroclaw-export.json"],
+                false,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "security",
+                    "profile",
+                    "set",
+                    "strict",
+                    "--dry-run",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "security",
+                    "profile",
+                    "recommend",
+                    "need unattended browser automation",
+                    "--json",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "onboard",
+                    "--intent",
+                    "need browser automation",
+                    "--dry-run",
+                ],
+                false,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "preset",
+                    "intent",
+                    "need unattended browser automation",
+                ],
+                false,
+            ),
+            (
+                vec![
+                    "zeroclaw",
+                    "security",
+                    "profile",
+                    "set",
+                    "strict",
+                    "--dry-run",
+                ],
+                false,
+            ),
+            (vec!["zeroclaw", "completions", "bash"], false),
+        ];
+
+        for (args, expected_machine_json) in cases {
+            let cli = Cli::try_parse_from(args.clone())
+                .unwrap_or_else(|error| panic!("failed to parse args {:?}: {error}", args));
+            assert_eq!(
+                command_requests_machine_json(&cli.command),
+                expected_machine_json,
+                "unexpected machine-json mode for args {:?}",
+                args
+            );
+        }
+    }
+
+    #[test]
+    fn onboard_runtime_validation_rejects_intent_with_interactive_mode() {
+        let error = validate_onboard_command_mode(
+            true,  // interactive
+            false, // channels_only
+            false, // force
+            false, // api_key_present
+            false, // provider_present
+            false, // model_present
+            false, // memory_present
+            false, // preset_present
+            false, // pack_present
+            true,  // intent_present
+            false, // security_profile_present
+            false, // yes_security_risk
+            false, // dry_run
+            false, // json
+            false, // rebuild
+            false, // yes_rebuild
+        )
+        .expect_err("intent should not be accepted with --interactive");
+        assert!(
+            error
+                .to_string()
+                .contains("`--intent` is supported in quick onboard mode only"),
+            "unexpected error message: {error}"
+        );
+    }
+
+    #[test]
+    fn onboard_runtime_validation_rejects_channels_only_with_quick_flags() {
+        let error = validate_onboard_command_mode(
+            false, // interactive
+            true,  // channels_only
+            false, // force
+            false, // api_key_present
+            true,  // provider_present
+            false, // model_present
+            false, // memory_present
+            false, // preset_present
+            false, // pack_present
+            false, // intent_present
+            false, // security_profile_present
+            false, // yes_security_risk
+            false, // dry_run
+            false, // json
+            false, // rebuild
+            false, // yes_rebuild
+        )
+        .expect_err("--channels-only should reject quick flags");
+        assert!(
+            error
+                .to_string()
+                .contains("--channels-only does not accept quick-setup or rebuild flags"),
+            "unexpected error message: {error}"
+        );
+    }
+
+    #[test]
+    fn onboard_runtime_validation_requires_yes_rebuild_with_rebuild_flag() {
+        let error = validate_onboard_command_mode(
+            false, // interactive
+            false, // channels_only
+            false, // force
+            false, // api_key_present
+            false, // provider_present
+            false, // model_present
+            false, // memory_present
+            false, // preset_present
+            false, // pack_present
+            false, // intent_present
+            false, // security_profile_present
+            false, // yes_security_risk
+            false, // dry_run
+            false, // json
+            false, // rebuild
+            true,  // yes_rebuild
+        )
+        .expect_err("--yes-rebuild without --rebuild should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("`--yes-rebuild` requires `--rebuild`."),
+            "unexpected error message: {error}"
+        );
+    }
+
+    #[test]
+    fn onboard_runtime_validation_requires_dry_run_for_json_mode() {
+        let error = validate_onboard_command_mode(
+            false, // interactive
+            false, // channels_only
+            false, // force
+            false, // api_key_present
+            false, // provider_present
+            false, // model_present
+            false, // memory_present
+            false, // preset_present
+            false, // pack_present
+            false, // intent_present
+            false, // security_profile_present
+            false, // yes_security_risk
+            false, // dry_run
+            true,  // json
+            false, // rebuild
+            false, // yes_rebuild
+        )
+        .expect_err("onboard --json should require --dry-run");
+        assert!(
+            error
+                .to_string()
+                .contains("`--json` requires `--dry-run` in onboard quick mode."),
+            "unexpected error message: {error}"
+        );
+    }
+
+    #[test]
+    fn onboard_quick_risk_requirements_reject_risky_pack_without_consent() {
+        let error = evaluate_onboard_quick_risk_requirements(
+            &["tools-update".to_string()],
+            "strict",
+            false,
+            false,
+        )
+        .expect_err("non-dry-run risky selection should require explicit consent");
+        assert!(
+            error
+                .to_string()
+                .contains("Selection includes risky packs [tools-update]"),
+            "unexpected error message: {error}"
+        );
+    }
+
+    #[test]
+    fn onboard_quick_risk_requirements_warn_in_dry_run_without_consent() {
+        let assessment = evaluate_onboard_quick_risk_requirements(
+            &["tools-update".to_string()],
+            "balanced",
+            false,
+            true,
+        )
+        .expect("dry-run should allow preview without explicit consent");
+        assert_eq!(assessment.warnings.len(), 2);
+        assert_eq!(
+            assessment.consent_reasons,
+            vec![
+                ConsentReasonCode::RiskyPack,
+                ConsentReasonCode::SecurityNonStrict
+            ]
+        );
+        assert_eq!(
+            assessment.warning_codes,
+            vec![
+                OnboardWarningCode::RiskyPackRequiresConsent,
+                OnboardWarningCode::SecurityNonStrictRequiresConsent
+            ]
+        );
+        assert!(
+            assessment
+                .warnings
+                .iter()
+                .any(|line| line.contains("risky packs [tools-update]")),
+            "missing risky pack warning: {:?}",
+            assessment.warnings
+        );
+        assert!(
+            assessment
+                .warnings
+                .iter()
+                .any(|line| line.contains("Security profile 'balanced' is non-strict")),
+            "missing security profile warning: {:?}",
+            assessment.warnings
+        );
+    }
+
+    #[test]
+    fn onboard_quick_risk_requirements_allow_consented_selection() {
+        let assessment = evaluate_onboard_quick_risk_requirements(
+            &["tools-update".to_string()],
+            "balanced",
+            true,
+            false,
+        )
+        .expect("consented selection should pass");
+        assert!(
+            assessment.warnings.is_empty(),
+            "warnings should be empty when consent is provided: {:?}",
+            assessment.warnings
+        );
+        assert!(
+            assessment.consent_reasons.is_empty(),
+            "consent reasons should be empty when consent is provided: {:?}",
+            assessment.consent_reasons
+        );
+        assert!(
+            assessment.warning_codes.is_empty(),
+            "warning codes should be empty when consent is provided: {:?}",
+            assessment.warning_codes
+        );
+    }
+
+    #[test]
+    fn consent_reason_keys_are_stable_and_ordered() {
+        let keys = consent_reason_keys(&[
+            ConsentReasonCode::RiskyPack,
+            ConsentReasonCode::Rebuild,
+            ConsentReasonCode::SecurityNonStrict,
+        ]);
+        assert_eq!(
+            keys,
+            vec![
+                "consent.reason.risky_pack".to_string(),
+                "consent.reason.rebuild".to_string(),
+                "consent.reason.security_non_strict".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn onboard_warning_keys_are_stable_and_ordered() {
+        let keys = onboard_warning_keys(&[
+            OnboardWarningCode::RiskyPackRequiresConsent,
+            OnboardWarningCode::SecurityNonStrictRequiresConsent,
+        ]);
+        assert_eq!(
+            keys,
+            vec![
+                "onboard.warning.risky_pack_requires_consent".to_string(),
+                "onboard.warning.security_non_strict_requires_consent".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn security_risk_consent_reasons_and_keys_are_stable_and_ordered() {
+        let reasons = build_security_risk_consent_reasons(true, true);
+        assert_eq!(
+            reasons,
+            vec![
+                SecurityRiskConsentReasonCode::NonStrictProfile,
+                SecurityRiskConsentReasonCode::NonCliAutoApproval
+            ]
+        );
+        let keys = security_risk_consent_reason_keys(&reasons);
+        assert_eq!(
+            keys,
+            vec![
+                "security.risk_reason.non_strict_profile".to_string(),
+                "security.risk_reason.non_cli_auto_approval".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn security_profile_change_report_contains_schema_and_reason_keys() {
+        let current = onboard::autonomy_config_for_security_profile_id("strict")
+            .expect("strict profile should exist");
+        let target = onboard::autonomy_config_for_security_profile_id("balanced")
+            .expect("balanced profile should exist");
+        let reasons = build_security_risk_consent_reasons(true, false);
+        let report =
+            build_security_profile_change_report(&current, &target, "balanced", &reasons, true);
+        assert_eq!(
+            report.schema_version,
+            SECURITY_PROFILE_CHANGE_SCHEMA_VERSION
+        );
+        assert_eq!(report.report_type, SECURITY_PROFILE_CHANGE_REPORT_TYPE);
+        assert!(report.requires_explicit_risk_consent);
+        assert_eq!(report.risk_consent_reasons, reasons);
+        assert_eq!(
+            report.risk_consent_reason_keys,
+            vec!["security.risk_reason.non_strict_profile".to_string()]
+        );
+    }
+
+    #[test]
+    fn machine_json_report_type_constants_are_stable() {
+        assert_eq!(ONBOARD_QUICK_DRY_RUN_REPORT_TYPE, "onboard.quick_dry_run");
+        assert_eq!(
+            PRESET_INTENT_ORCHESTRATION_REPORT_TYPE,
+            "preset.intent_orchestration"
+        );
+        assert_eq!(PRESET_APPLY_DRY_RUN_REPORT_TYPE, "preset.apply_dry_run");
+        assert_eq!(PRESET_IMPORT_DRY_RUN_REPORT_TYPE, "preset.import_dry_run");
+        assert_eq!(PRESET_EXPORT_REPORT_TYPE, "preset.export");
+        assert_eq!(
+            SECURITY_PROFILE_CHANGE_REPORT_TYPE,
+            "security.profile_change"
+        );
+        assert_eq!(
+            SECURITY_PROFILE_RECOMMEND_REPORT_TYPE,
+            "security.profile_recommendation"
+        );
     }
 
     #[test]

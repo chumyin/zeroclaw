@@ -15,6 +15,8 @@ ZeroClaw is moving toward a **core-first** delivery model:
 
 This guide defines the operational contract for that flow, including import/export/share and contribution standards.
 
+For machine-consumable JSON report contracts (`preset intent/apply/import/export/validate --json`), see [preset-machine-contract.md](preset-machine-contract.md).
+
 ## Core concepts
 
 - **Feature pack**: smallest selectable capability bundle (for example, `browser-native`, `tools-update`).
