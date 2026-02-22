@@ -11,11 +11,14 @@ module.exports = async ({ github, context, core }) => {
     }
 
     const baseOwners = ["theonlyhennygod", "willsarg"];
+    const repoOwnerLogin = owner.toLowerCase();
+    const forkOwner =
+      repoOwnerLogin && repoOwnerLogin !== "zeroclaw-labs" ? [repoOwnerLogin] : [];
     const configuredOwners = (process.env.WORKFLOW_OWNER_LOGINS || "")
       .split(",")
       .map((login) => login.trim().toLowerCase())
       .filter(Boolean);
-    const ownerAllowlist = [...new Set([...baseOwners, ...configuredOwners])];
+    const ownerAllowlist = [...new Set([...baseOwners, ...configuredOwners, ...forkOwner])];
 
     if (ownerAllowlist.length === 0) {
       core.setFailed("Workflow owner allowlist is empty.");
